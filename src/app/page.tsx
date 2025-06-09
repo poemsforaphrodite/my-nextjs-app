@@ -5,29 +5,9 @@ import { useDropzone } from 'react-dropzone';
 import { ArrowUpTrayIcon, DocumentTextIcon, ArrowDownTrayIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
 import { saveAs } from 'file-saver';
 
-interface DocumentationData {
-  datasetName: string;
-  market: string;
-  primaryOwner: string;
-  refreshFrequency: string;
-  tableName: string;
-  summary: {
-    description: string;
-    tableGrain: string;
-    inputDatasets: string;
-    outputDatasets: string;
-  };
-  processFlow: {
-    highLevel: string;
-    steps: string;
-  };
-  kpis: string;
-}
-
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isComplete, setIsComplete] = useState(false);
   const [error, setError] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
 
@@ -55,7 +35,6 @@ export default function Home() {
     setIsProcessing(true);
     setError('');
     setSuccessMessage('');
-    setIsComplete(false);
 
     try {
       const fileContent = await file.text();
@@ -80,7 +59,6 @@ export default function Home() {
       const filename = `${file.name.replace('.py', '')}_documentation.docx`;
       saveAs(blob, filename);
       
-      setIsComplete(true);
       setSuccessMessage(`Documentation generated successfully! Downloaded as ${filename}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');

@@ -67,7 +67,7 @@ Please analyze the code thoroughly and provide specific, accurate information ba
 
 function createDocxFromDocumentation(documentation: string, filename: string) {
   const lines = documentation.split('\n');
-  const children: any[] = [];
+  const children: (Paragraph | Table)[] = [];
 
   // Document title and header
   children.push(new Paragraph({
@@ -272,7 +272,7 @@ function createInfoTable(data: string[]) {
         }))
       }),
       new TableRow({
-        children: data.map((cell, index) => new TableCell({
+        children: data.map((cell) => new TableCell({
           children: [new Paragraph({
             children: [new TextRun({ 
               text: cell.split(':')[1]?.trim() || cell.trim(),
