@@ -140,6 +140,7 @@ function createDocxFromDocumentation(documentation: string, filename: string) {
       }
     }
     // Main headers (1., 2., 3.)
+    //TEST
     else if (line.match(/^\d+\.\s/)) {
       children.push(new Paragraph({
         children: [
