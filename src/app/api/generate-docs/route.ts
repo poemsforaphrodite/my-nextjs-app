@@ -21,240 +21,234 @@ const openai = new OpenAI({
 });
 
 const DOCUMENTATION_TEMPLATE = `
-Please analyze the following Python code and generate comprehensive documentation using this exact format.
-This template has been updated to test Git deployment with the correct GitHub account:
+Please analyze the following Python code and generate comprehensive documentation in a structured JSON format.
+This template has been updated to test Git deployment with the correct GitHub account.
 
-Dataset Name: [Extract or infer dataset name]	Market: -	Primary Owner: ZS	Refresh Frequency: Daily/Weekly/Monthly
+You must output a single JSON object. Do not include any other text before or after the JSON.
+The JSON object should follow this exact structure:
 
-Schema_name.table_name	-	ZS	Daily/Weekly/Monthly
+{
+  "datasetInfo": {
+    "datasetName": "string | null",
+    "market": "string | null",
+    "primaryOwner": "string | null",
+    "refreshFrequency": "string | null",
+    "schemaTableName": "string | null"
+  },
+  "summary": {
+    "description": "string",
+    "tableGrain": "string",
+    "inputDatasets": ["string"],
+    "outputDatasets": [
+      {
+        "tableName": "string",
+        "description": "string"
+      }
+    ]
+  },
+  "processFlow": {
+    "highLevelProcessFlow": ["string"],
+    "stepsPerformed": [
+      {
+        "step": "number",
+        "description": "string",
+        "inputTablesData": "string",
+        "joinConditionsOperations": "string",
+        "businessDefinition": "string"
+      }
+    ]
+  },
+  "kpisAndBusinessDefinitions": {
+    "kpis": [
+      {
+        "kpiField": "string",
+        "businessDefinition": "string"
+      }
+    ]
+  }
+}
 
-1. Summary
-1.1 Description
-{Provide a detailed description of what this Python code does, its purpose, and its role in data processing pipeline}
+- For "datasetName", "market", "primaryOwner", "refreshFrequency", "schemaTableName", extract them from the code or infer them. If not available, use placeholders like 'N/A' or an inferred value.
+- "inputDatasets" should be a list of strings.
+- "outputDatasets" should be an array of objects.
+- "highLevelProcessFlow" should be an array of strings describing the high-level steps.
+- "stepsPerformed" should be an array of objects, with "step" as a number.
+- "kpis" should be an array of objects.
 
-1.2 Table Grain 
-{Identify the grain/level at which data is processed - what are the key identifiers or dimensions}
-
-1.3 Input Datasets
-{List all input data sources, files, databases, APIs, or datasets that this code reads from}
-
-1.4 Output Datasets
-{List all output datasets, files, or data structures that this code generates}
-Table_Name	Table Description
-[table_name]	[Brief description of what this table contains and its purpose]
-
-2. Process Flow & Steps Performed
-2.1 High Level Process Flow 
-{Provide a clear, numbered list of high-level steps that describe what the code does from start to finish}
-
-2.2 Steps performed in the code
-{Create a detailed table with the following columns: Step, Description, Input Tables/Data, Join Conditions/Operations, Business Definition}
-
-Step	Description	Input Tables/Data	Join Conditions/Operations	Business Definition
-1	[Step description]	[Input data sources]	[How data is combined/processed]	[Business logic explanation]
-2	[Step description]	[Input data sources]	[How data is combined/processed]	[Business logic explanation]
-[Continue for all major steps...]
-
-3. KPIs & Business Definitions
-{List all calculated fields, flags, metrics, and key business logic with their definitions}
-
-KPI/Field	Business Definition
-[field_name]	[Clear explanation of how this field is calculated and what it represents]
-[flag_name]	[Explanation of when this flag is set and its business meaning]
-[metric_name]	[Definition of the metric and its calculation logic]
-
-Please analyze the code thoroughly and provide specific, accurate information based on the actual code structure and logic.
+Please analyze the code thoroughly and provide specific, accurate information based on the actual code structure and logic, populating the JSON structure.
 `;
 
-function createDocxFromDocumentation(documentation: string, filename: string) {
-  const lines = documentation.split('\n');
-  const children: (Paragraph | Table)[] = [];
-
-  // Document title and header
-  children.push(new Paragraph({
-    children: [
-      new TextRun({
-        text: `Python Documentation Report`,
-        bold: true,
-        size: 32,
-        color: "2E86AB"
-      })
-    ],
-    alignment: AlignmentType.CENTER,
-    spacing: { after: 400 }
-  }));
-
-  children.push(new Paragraph({
-    children: [
-      new TextRun({
-        text: `Generated for: ${filename}`,
-        size: 24,
-        color: "666666",
-        italics: true
-      })
-    ],
-    alignment: AlignmentType.CENTER,
-    spacing: { after: 600 }
-  }));
-
-  // Add horizontal line
-  children.push(new Paragraph({
-    children: [new TextRun({ text: "", size: 1 })],
-    border: {
-      bottom: {
-        color: "2E86AB",
-        space: 1,
-        style: BorderStyle.SINGLE,
-        size: 6
-      }
-    },
-    spacing: { after: 400 }
-  }));
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    
-    if (!line) {
-      children.push(new Paragraph({ text: "", spacing: { after: 120 } }));
-      continue;
-    }
-
-    // Dataset header with special formatting
-    if (line.match(/^Dataset Name:/)) {
-      const parts = line.split('\t');
-      if (parts.length > 1) {
-        children.push(createInfoTable(parts));
-      } else {
-        children.push(new Paragraph({
-          children: [
-            new TextRun({
-              text: line,
-              bold: true,
-              size: 28,
-              color: "2E86AB"
-            })
-          ],
-          spacing: { before: 400, after: 300 },
-          alignment: AlignmentType.LEFT
-        }));
-      }
-    }
-    // Main headers (1., 2., 3.)
-    //TEST
-    else if (line.match(/^\d+\.\s/)) {
-      children.push(new Paragraph({
+// Helper functions for creating document elements
+function createSectionHeader(text: string): Paragraph {
+    return new Paragraph({
         children: [
-          new TextRun({
-            text: line,
-            bold: true,
-            size: 24,
-            color: "1B5E20"
-          })
+            new TextRun({
+                text,
+                bold: true,
+                size: 28, // Increased size for better readability
+                color: "1B5E20"
+            })
         ],
         heading: HeadingLevel.HEADING_1,
-        spacing: { before: 600, after: 300 }
-      }));
-    }
-    // Sub headers (1.1, 1.2, etc.)
-    else if (line.match(/^\d+\.\d+\s/)) {
-      children.push(new Paragraph({
+        spacing: { before: 600, after: 300 },
+        border: { bottom: { color: "1B5E20", size: 4, space: 1, style: BorderStyle.SINGLE } }
+    });
+}
+
+function createSubHeader(text: string): Paragraph {
+    return new Paragraph({
         children: [
-          new TextRun({
-            text: line,
-            bold: true,
-            size: 20,
-            color: "2E7D32"
-          })
+            new TextRun({
+                text,
+                bold: true,
+                size: 24, // Increased size
+                color: "2E7D32"
+            })
         ],
         heading: HeadingLevel.HEADING_2,
         spacing: { before: 400, after: 200 }
-      }));
-    }
-    // Sub-sub headers (1.1.1, etc.)
-    else if (line.match(/^\d+\.\d+\.\d+\s/)) {
-      children.push(new Paragraph({
-        children: [
-          new TextRun({
-            text: line,
-            bold: true,
-            size: 18,
-            color: "388E3C"
-          })
-        ],
-        heading: HeadingLevel.HEADING_3,
-        spacing: { before: 300, after: 150 }
-      }));
-    }
-    // Tables
-    else if (line.includes('\t') && (line.includes('Step') || line.includes('Table_Name') || line.includes('KPI') || line.includes('Field'))) {
-      const tableData = parseTableData(lines, i);
-      children.push(createStyledTable(tableData.rows));
-      i = tableData.endIndex - 1;
-    }
-    // Bullet points with icons
-    else if (line.startsWith('•') || line.startsWith('🔹')) {
-      children.push(new Paragraph({
-        children: [
-          new TextRun({
-            text: `▪ ${line.substring(1).trim()}`,
-            size: 22,
-            color: "424242"
-          })
-        ],
-        spacing: { after: 120, before: 60 },
-        indent: { left: convertInchesToTwip(0.25) }
-      }));
-    }
-    // Code blocks or examples
-    else if (line.startsWith('{') && line.endsWith('}')) {
-      children.push(new Paragraph({
-        children: [
-          new TextRun({
-            text: line,
-            size: 20,
-            color: "D32F2F",
-            italics: true
-          })
-        ],
-        spacing: { after: 200, before: 100 },
-        indent: { left: convertInchesToTwip(0.5) }
-      }));
-    }
-    // Regular paragraphs with better formatting
-    else {
-      children.push(new Paragraph({
-        children: [
-          new TextRun({
-            text: line,
-            size: 22,
-            color: "212121"
-          })
-        ],
-        spacing: { after: 150, before: 50 },
-        alignment: AlignmentType.JUSTIFIED
-      }));
-    }
-  }
-
-  return new Document({
-    sections: [{
-      properties: {
-        page: {
-          margin: {
-            top: convertInchesToTwip(1),
-            right: convertInchesToTwip(1),
-            bottom: convertInchesToTwip(1),
-            left: convertInchesToTwip(1)
-          }
-        }
-      },
-      children: children
-    }]
-  });
+    });
 }
 
-function createInfoTable(data: string[]) {
-  const headers = ['Dataset Name', 'Market', 'Primary Owner', 'Refresh Frequency'];
+function createParagraph(text: string): Paragraph {
+    if (!text) return new Paragraph("");
+    return new Paragraph({
+        children: [new TextRun({ text, size: 22, color: "212121" })],
+        spacing: { after: 150, before: 50 },
+        alignment: AlignmentType.JUSTIFIED
+    });
+}
+
+function createBullet(text: string): Paragraph {
+    return new Paragraph({
+        children: [new TextRun({ text, size: 22, color: "424242" })],
+        bullet: { level: 0 },
+        spacing: { after: 120, before: 60 },
+        indent: { left: convertInchesToTwip(0.25) }
+    });
+}
+
+
+function createDocxFromDocumentation(documentation: any, filename: string) {
+    const children: (Paragraph | Table)[] = [];
+
+    // Document title and header
+    children.push(new Paragraph({
+        children: [
+            new TextRun({ text: `Python Documentation Report`, bold: true, size: 36, color: "2E86AB" })
+        ],
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 400 }
+    }));
+    children.push(new Paragraph({
+        children: [
+            new TextRun({ text: `Generated for: ${filename}`, size: 24, color: "666666", italics: true })
+        ],
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 600 }
+    }));
+    children.push(new Paragraph({
+        children: [new TextRun({ text: "", size: 1 })],
+        border: { bottom: { color: "2E86AB", space: 1, style: BorderStyle.SINGLE, size: 6 }},
+        spacing: { after: 400 }
+    }));
+
+    // Dataset Info
+    if (documentation.datasetInfo) {
+        const { datasetName, market, primaryOwner, refreshFrequency } = documentation.datasetInfo;
+        const infoData = [
+            ['Dataset Name', datasetName || '-'],
+            ['Market', market || '-'],
+            ['Primary Owner', primaryOwner || 'ZS'],
+            ['Refresh Frequency', refreshFrequency || 'N/A']
+        ];
+        children.push(createInfoTable(infoData));
+    }
+
+    // Summary Section
+    if (documentation.summary) {
+        children.push(createSectionHeader('1. Summary'));
+        const { description, tableGrain, inputDatasets, outputDatasets } = documentation.summary;
+        children.push(createSubHeader('1.1 Description'));
+        children.push(createParagraph(description));
+
+        children.push(createSubHeader('1.2 Table Grain'));
+        children.push(createParagraph(tableGrain));
+
+        children.push(createSubHeader('1.3 Input Datasets'));
+        if (inputDatasets && inputDatasets.length > 0) {
+            inputDatasets.forEach((ds: string) => children.push(createBullet(ds)));
+        } else {
+            children.push(createParagraph("No input datasets specified."));
+        }
+        
+        children.push(createSubHeader('1.4 Output Datasets'));
+        if (outputDatasets && outputDatasets.length > 0) {
+            const outputTableRows = [
+                ['Table Name', 'Table Description'],
+                ...outputDatasets.map((d: any) => [d.tableName, d.description])
+            ];
+            children.push(createStyledTable(outputTableRows));
+        } else {
+            children.push(createParagraph("No output datasets specified."));
+        }
+    }
+
+    // Process Flow
+    if (documentation.processFlow) {
+        children.push(createSectionHeader('2. Process Flow & Steps Performed'));
+        const { highLevelProcessFlow, stepsPerformed } = documentation.processFlow;
+
+        children.push(createSubHeader('2.1 High Level Process Flow'));
+        if (highLevelProcessFlow && highLevelProcessFlow.length > 0) {
+            highLevelProcessFlow.forEach((step: string) => children.push(createBullet(step)));
+        } else {
+            children.push(createParagraph("No high-level process flow described."));
+        }
+
+        children.push(createSubHeader('2.2 Steps performed in the code'));
+        if (stepsPerformed && stepsPerformed.length > 0) {
+            const stepsTableRows = [
+                ['Step', 'Description', 'Input Tables/Data', 'Join Conditions/Operations', 'Business Definition'],
+                ...stepsPerformed.map((s: any) => [s.step.toString(), s.description, s.inputTablesData, s.joinConditionsOperations, s.businessDefinition])
+            ];
+            children.push(createStyledTable(stepsTableRows));
+        } else {
+            children.push(createParagraph("No detailed steps provided."));
+        }
+    }
+
+    // KPIs & Business Definitions
+    if (documentation.kpisAndBusinessDefinitions) {
+        children.push(createSectionHeader('3. KPIs & Business Definitions'));
+        const { kpis } = documentation.kpisAndBusinessDefinitions;
+        if (kpis && kpis.length > 0) {
+            const kpiTableRows = [
+                ['KPI/Field', 'Business Definition'],
+                ...kpis.map((k: any) => [k.kpiField, k.businessDefinition])
+            ];
+            children.push(createStyledTable(kpiTableRows));
+        } else {
+            children.push(createParagraph("No KPIs or business definitions provided."));
+        }
+    }
+
+
+    return new Document({
+        sections: [{
+            properties: {
+                page: {
+                    margin: { top: convertInchesToTwip(1), right: convertInchesToTwip(1), bottom: convertInchesToTwip(1), left: convertInchesToTwip(1) }
+                }
+            },
+            children: children
+        }]
+    });
+}
+
+function createInfoTable(data: string[][]) {
+  const headers = data.map(d => d[0]);
+  const values = data.map(d => d[1]);
   
   return new Table({
     rows: [
@@ -264,26 +258,24 @@ function createInfoTable(data: string[]) {
             children: [new TextRun({ 
               text: header, 
               bold: true, 
-              color: "FFFFFF",
+              color: "000000",
               size: 20
             })],
             alignment: AlignmentType.CENTER
           })],
-          shading: { fill: "2E86AB", type: ShadingType.SOLID },
           margins: { top: 200, bottom: 200, left: 200, right: 200 }
         }))
       }),
       new TableRow({
-        children: data.map((cell) => new TableCell({
+        children: values.map((cell) => new TableCell({
           children: [new Paragraph({
             children: [new TextRun({ 
-              text: cell.split(':')[1]?.trim() || cell.trim(),
+              text: cell,
               size: 20,
-              color: "212121"
+              color: "000000"
             })],
             alignment: AlignmentType.CENTER
           })],
-          shading: { fill: "F5F5F5", type: ShadingType.SOLID },
           margins: { top: 200, bottom: 200, left: 200, right: 200 }
         }))
       })
@@ -301,21 +293,6 @@ function createInfoTable(data: string[]) {
   });
 }
 
-function parseTableData(lines: string[], startIndex: number) {
-  const rows: string[][] = [];
-  let i = startIndex;
-  
-  while (i < lines.length && lines[i].trim() && lines[i].includes('\t')) {
-    const cells = lines[i].trim().split('\t');
-    if (cells.length > 1) {
-      rows.push(cells);
-    }
-    i++;
-  }
-  
-  return { rows, endIndex: i };
-}
-
 function createStyledTable(tableRows: string[][]) {
   if (tableRows.length === 0) return new Paragraph({ text: "" });
   
@@ -329,12 +306,11 @@ function createStyledTable(tableRows: string[][]) {
           children: [new TextRun({ 
             text: cell.trim(), 
             bold: true, 
-            color: "FFFFFF",
+            color: "000000",
             size: 20
           })],
           alignment: AlignmentType.CENTER
         })],
-        shading: { fill: "1B5E20", type: ShadingType.SOLID },
         margins: { top: 200, bottom: 200, left: 200, right: 200 },
         width: { size: 100 / headerRow.length, type: WidthType.PERCENTAGE }
       }))
@@ -346,14 +322,10 @@ function createStyledTable(tableRows: string[][]) {
           children: [new TextRun({ 
             text: cell.trim(),
             size: 20,
-            color: "212121"
+            color: "000000"
           })],
           alignment: AlignmentType.LEFT
         })],
-        shading: { 
-          fill: index % 2 === 0 ? "F8F9FA" : "FFFFFF", 
-          type: ShadingType.SOLID 
-        },
         margins: { top: 150, bottom: 150, left: 200, right: 200 },
         width: { size: 100 / headerRow.length, type: WidthType.PERCENTAGE }
       }))
@@ -377,7 +349,26 @@ function createStyledTable(tableRows: string[][]) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { pythonCode, filename } = await request.json();
+    const body = await request.json();
+    const { action } = body;
+
+    if (action === 'create-docx') {
+      const { documentation, filename } = body;
+      if (!documentation || !filename) {
+        return NextResponse.json({ error: 'Documentation data and filename are required' }, { status: 400 });
+      }
+      const doc = createDocxFromDocumentation(documentation, filename);
+      const buffer = await Packer.toBuffer(doc);
+
+      return new NextResponse(buffer, {
+        headers: {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'Content-Disposition': `attachment; filename="${filename.replace('.py', '')}_documentation.docx"`,
+        },
+      });
+    }
+
+    const { pythonCode, filename } = body;
 
     if (!pythonCode) {
       return NextResponse.json(
@@ -395,6 +386,7 @@ export async function POST(request: NextRequest) {
 
     const completion = await openai.chat.completions.create({
       model: 'o4-mini-2025-04-16',
+      response_format: { type: "json_object" },
       messages: [
         {
           role: 'system',
@@ -416,25 +408,25 @@ Please generate the documentation following the exact template format provided a
       ],
     });
 
-    const documentation = completion.choices[0]?.message?.content;
+    const documentationString = completion.choices[0]?.message?.content;
 
-    if (!documentation) {
+    if (!documentationString) {
       return NextResponse.json(
         { error: 'Failed to generate documentation' },
         { status: 500 }
       );
     }
-
-    // Create DOCX document
-    const doc = createDocxFromDocumentation(documentation, filename);
-    const buffer = await Packer.toBuffer(doc);
-
-    return new NextResponse(buffer, {
-      headers: {
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'Content-Disposition': `attachment; filename="${filename.replace('.py', '')}_documentation.docx"`,
-      },
-    });
+    
+    try {
+      const documentationJson = JSON.parse(documentationString);
+      return NextResponse.json(documentationJson);
+    } catch (error) {
+      console.error("Failed to parse JSON from OpenAI:", documentationString);
+      return NextResponse.json(
+        { error: 'Failed to parse documentation from AI response.' },
+        { status: 500 }
+      );
+    }
 
   } catch (error) {
     console.error('Error generating documentation:', error);

@@ -5,17 +5,133 @@ import { useDropzone } from 'react-dropzone';
 import { ArrowUpTrayIcon, DocumentTextIcon, ArrowDownTrayIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
 import { saveAs } from 'file-saver';
 
+// New component to display the structured documentation
+const DocumentationViewer = ({ documentation, onDownload, isDownloading }: { documentation: any, onDownload: () => void, isDownloading: boolean }) => {
+  if (!documentation) return null;
+
+  const { datasetInfo, summary, processFlow, kpisAndBusinessDefinitions } = documentation;
+
+  const Section = ({ title, children }: { title: string, children: React.ReactNode }) => (
+    <div className="mb-8">
+      <h2 className="text-3xl font-bold text-gray-800 border-b-2 border-gray-200 pb-2 mb-4">{title}</h2>
+      {children}
+    </div>
+  );
+
+  const SubSection = ({ title, children }: { title: string, children: React.ReactNode }) => (
+    <div className="mb-6">
+      <h3 className="text-2xl font-semibold text-gray-700 mb-3">{title}</h3>
+      {children}
+    </div>
+  );
+
+  const Table = ({ headers, data }: { headers: string[], data: (string | number)[][] }) => (
+    <div className="overflow-x-auto">
+      <table className="min-w-full bg-white border border-gray-300">
+        <thead>
+          <tr className="bg-gray-100">
+            {headers.map(h => <th key={h} className="text-left font-semibold text-gray-600 p-3 border-b">{h}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((row, i) => (
+            <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+              {row.map((cell, j) => <td key={j} className="p-3 border-t">{cell}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <div className="mt-12 p-8 bg-white rounded-2xl shadow-lg border border-gray-200">
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-4xl font-bold text-gray-900">Generated Documentation</h1>
+        <button
+          onClick={onDownload}
+          disabled={isDownloading}
+          className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all duration-300 shadow-md hover:shadow-lg disabled:cursor-not-allowed"
+        >
+          {isDownloading ? (
+            <>
+              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+              Downloading...
+            </>
+          ) : (
+            <>
+              <ArrowDownTrayIcon className="w-5 h-5" />
+              Download DOCX
+            </>
+          )}
+        </button>
+      </div>
+
+      {datasetInfo && (
+        <Section title="Dataset Information">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                <div className="bg-blue-50 p-4 rounded-lg"><p className="text-sm text-blue-800 font-semibold">Dataset Name</p><p>{datasetInfo.datasetName}</p></div>
+                <div className="bg-blue-50 p-4 rounded-lg"><p className="text-sm text-blue-800 font-semibold">Market</p><p>{datasetInfo.market}</p></div>
+                <div className="bg-blue-50 p-4 rounded-lg"><p className="text-sm text-blue-800 font-semibold">Primary Owner</p><p>{datasetInfo.primaryOwner}</p></div>
+                <div className="bg-blue-50 p-4 rounded-lg"><p className="text-sm text-blue-800 font-semibold">Refresh Frequency</p><p>{datasetInfo.refreshFrequency}</p></div>
+            </div>
+        </Section>
+      )}
+
+      {summary && (
+        <Section title="1. Summary">
+          <SubSection title="1.1 Description"><p>{summary.description}</p></SubSection>
+          <SubSection title="1.2 Table Grain"><p>{summary.tableGrain}</p></SubSection>
+          <SubSection title="1.3 Input Datasets">
+            <ul className="list-disc list-inside">{summary.inputDatasets?.map((d:string, i:number) => <li key={i}>{d}</li>)}</ul>
+          </SubSection>
+          <SubSection title="1.4 Output Datasets">
+            <Table headers={['Table Name', 'Description']} data={summary.outputDatasets?.map((d: any) => [d.tableName, d.description]) || []} />
+          </SubSection>
+        </Section>
+      )}
+
+      {processFlow && (
+        <Section title="2. Process Flow & Steps Performed">
+          <SubSection title="2.1 High Level Process Flow">
+            <ul className="list-disc list-inside">{processFlow.highLevelProcessFlow?.map((s: string, i: number) => <li key={i}>{s}</li>)}</ul>
+          </SubSection>
+          <SubSection title="2.2 Steps performed in the code">
+            <Table 
+              headers={['Step', 'Description', 'Input Tables/Data', 'Join Conditions/Operations', 'Business Definition']} 
+              data={processFlow.stepsPerformed?.map((s: any) => [s.step, s.description, s.inputTablesData, s.joinConditionsOperations, s.businessDefinition]) || []} 
+            />
+          </SubSection>
+        </Section>
+      )}
+
+      {kpisAndBusinessDefinitions && (
+        <Section title="3. KPIs & Business Definitions">
+          <Table 
+            headers={['KPI/Field', 'Business Definition']}
+            data={kpisAndBusinessDefinitions.kpis?.map((k: any) => [k.kpiField, k.businessDefinition]) || []}
+          />
+        </Section>
+      )}
+    </div>
+  );
+};
+
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
+  const [documentation, setDocumentation] = useState<any | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const uploadedFile = acceptedFiles[0];
     if (uploadedFile && uploadedFile.name.endsWith('.py')) {
       setFile(uploadedFile);
       setError('');
+      setDocumentation(null);
+      setSuccessMessage('');
     } else {
       setError('Please upload a Python (.py) file');
     }
@@ -35,6 +151,7 @@ export default function Home() {
     setIsProcessing(true);
     setError('');
     setSuccessMessage('');
+    setDocumentation(null);
 
     try {
       const fileContent = await file.text();
@@ -51,15 +168,14 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to generate documentation');
+        const errData = await response.json();
+        throw new Error(errData.error || 'Failed to generate documentation');
       }
 
-      // Handle DOCX file download
-      const blob = await response.blob();
-      const filename = `${file.name.replace('.py', '')}_documentation.docx`;
-      saveAs(blob, filename);
-      
-      setSuccessMessage(`Documentation generated successfully! Downloaded as ${filename}`);
+      const data = await response.json();
+      setDocumentation(data);
+      setSuccessMessage(`Documentation generated successfully! You can now view it below or download it as a DOCX file.`);
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -67,12 +183,45 @@ export default function Home() {
     }
   };
 
+  const downloadDocumentation = async () => {
+    if (!file || !documentation) return;
 
+    setIsDownloading(true);
+    setError('');
+    
+    try {
+      const response = await fetch('/api/generate-docs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'create-docx',
+          documentation: documentation,
+          filename: file.name,
+        }),
+      });
 
-      return (
+      if (!response.ok) {
+        throw new Error('Failed to download documentation');
+      }
+
+      const blob = await response.blob();
+      const filename = `${file.name.replace('.py', '')}_documentation.docx`;
+      saveAs(blob, filename);
+      setSuccessMessage(`Documentation downloaded successfully as ${filename}`);
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
+  return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
       <div className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="text-center mb-12">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-full mb-6">
@@ -81,7 +230,7 @@ export default function Home() {
             <h1 className="text-5xl font-bold text-gray-900 mb-4">
               Python Documentation Generator
             </h1>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
               Transform your Python code into comprehensive, professional documentation 
               using AI-powered analysis
             </p>
@@ -153,7 +302,7 @@ export default function Home() {
             </div>
 
             {/* Action Section */}
-            {file && (
+            {file && !documentation && (
               <div className="px-8 pb-8">
                 <div className="bg-gray-50 rounded-xl p-6">
                   <div className="flex items-center justify-between">
@@ -178,7 +327,7 @@ export default function Home() {
                       ) : (
                         <>
                           <DocumentTextIcon className="w-5 h-5" />
-                          Generate DOCX Documentation
+                          Generate Documentation
                         </>
                       )}
                     </button>
@@ -187,6 +336,9 @@ export default function Home() {
               </div>
             )}
           </div>
+
+          {/* Documentation Viewer */}
+          {documentation && <DocumentationViewer documentation={documentation} onDownload={downloadDocumentation} isDownloading={isDownloading} />}
 
           {/* Features Section */}
           <div className="mt-16 grid md:grid-cols-3 gap-8">
