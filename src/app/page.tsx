@@ -5,8 +5,43 @@ import { useDropzone } from 'react-dropzone';
 import { ArrowUpTrayIcon, DocumentTextIcon, ArrowDownTrayIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
 import { saveAs } from 'file-saver';
 
+interface Documentation {
+  datasetInfo: {
+    datasetName: string | null;
+    market: string | null;
+    primaryOwner: string | null;
+    refreshFrequency: string | null;
+    schemaTableName: string | null;
+  };
+  summary: {
+    description: string;
+    tableGrain: string;
+    inputDatasets: string[];
+    outputDatasets: {
+      tableName: string;
+      description:string;
+    }[];
+  };
+  processFlow: {
+    highLevelProcessFlow: string[];
+    stepsPerformed: {
+      step: number;
+      description: string;
+      inputTablesData: string;
+      joinConditionsOperations: string;
+      businessDefinition: string;
+    }[];
+  };
+  kpisAndBusinessDefinitions: {
+    kpis: {
+      kpiField: string;
+      businessDefinition: string;
+    }[];
+  };
+}
+
 // New component to display the structured documentation
-const DocumentationViewer = ({ documentation, onDownload, isDownloading }: { documentation: any, onDownload: () => void, isDownloading: boolean }) => {
+const DocumentationViewer = ({ documentation, onDownload, isDownloading }: { documentation: Documentation, onDownload: () => void, isDownloading: boolean }) => {
   if (!documentation) return null;
 
   const { datasetInfo, summary, processFlow, kpisAndBusinessDefinitions } = documentation;
@@ -86,7 +121,7 @@ const DocumentationViewer = ({ documentation, onDownload, isDownloading }: { doc
             <ul className="list-disc list-inside">{summary.inputDatasets?.map((d:string, i:number) => <li key={i}>{d}</li>)}</ul>
           </SubSection>
           <SubSection title="1.4 Output Datasets">
-            <Table headers={['Table Name', 'Description']} data={summary.outputDatasets?.map((d: any) => [d.tableName, d.description]) || []} />
+            <Table headers={['Table Name', 'Description']} data={summary.outputDatasets?.map((d) => [d.tableName, d.description]) || []} />
           </SubSection>
         </Section>
       )}
@@ -99,7 +134,7 @@ const DocumentationViewer = ({ documentation, onDownload, isDownloading }: { doc
           <SubSection title="2.2 Steps performed in the code">
             <Table 
               headers={['Step', 'Description', 'Input Tables/Data', 'Join Conditions/Operations', 'Business Definition']} 
-              data={processFlow.stepsPerformed?.map((s: any) => [s.step, s.description, s.inputTablesData, s.joinConditionsOperations, s.businessDefinition]) || []} 
+              data={processFlow.stepsPerformed?.map((s) => [s.step, s.description, s.inputTablesData, s.joinConditionsOperations, s.businessDefinition]) || []} 
             />
           </SubSection>
         </Section>
@@ -109,7 +144,7 @@ const DocumentationViewer = ({ documentation, onDownload, isDownloading }: { doc
         <Section title="3. KPIs & Business Definitions">
           <Table 
             headers={['KPI/Field', 'Business Definition']}
-            data={kpisAndBusinessDefinitions.kpis?.map((k: any) => [k.kpiField, k.businessDefinition]) || []}
+            data={kpisAndBusinessDefinitions.kpis?.map((k) => [k.kpiField, k.businessDefinition]) || []}
           />
         </Section>
       )}
@@ -122,7 +157,7 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
-  const [documentation, setDocumentation] = useState<any | null>(null);
+  const [documentation, setDocumentation] = useState<Documentation | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {

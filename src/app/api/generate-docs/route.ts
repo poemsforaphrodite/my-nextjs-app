@@ -12,13 +12,47 @@ import {
   WidthType,
   BorderStyle,
   AlignmentType,
-  ShadingType,
   convertInchesToTwip
 } from 'docx';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+interface Documentation {
+  datasetInfo: {
+    datasetName: string | null;
+    market: string | null;
+    primaryOwner: string | null;
+    refreshFrequency: string | null;
+    schemaTableName: string | null;
+  };
+  summary: {
+    description: string;
+    tableGrain: string;
+    inputDatasets: string[];
+    outputDatasets: {
+      tableName: string;
+      description:string;
+    }[];
+  };
+  processFlow: {
+    highLevelProcessFlow: string[];
+    stepsPerformed: {
+      step: number;
+      description: string;
+      inputTablesData: string;
+      joinConditionsOperations: string;
+      businessDefinition: string;
+    }[];
+  };
+  kpisAndBusinessDefinitions: {
+    kpis: {
+      kpiField: string;
+      businessDefinition: string;
+    }[];
+  };
+}
 
 const DOCUMENTATION_TEMPLATE = `
 Please analyze the following Python code and generate comprehensive documentation in a structured JSON format.
@@ -129,7 +163,7 @@ function createBullet(text: string): Paragraph {
 }
 
 
-function createDocxFromDocumentation(documentation: any, filename: string) {
+function createDocxFromDocumentation(documentation: Documentation, filename: string) {
     const children: (Paragraph | Table)[] = [];
 
     // Document title and header
@@ -186,7 +220,7 @@ function createDocxFromDocumentation(documentation: any, filename: string) {
         if (outputDatasets && outputDatasets.length > 0) {
             const outputTableRows = [
                 ['Table Name', 'Table Description'],
-                ...outputDatasets.map((d: any) => [d.tableName, d.description])
+                ...outputDatasets.map((d) => [d.tableName, d.description])
             ];
             children.push(createStyledTable(outputTableRows));
         } else {
@@ -210,7 +244,7 @@ function createDocxFromDocumentation(documentation: any, filename: string) {
         if (stepsPerformed && stepsPerformed.length > 0) {
             const stepsTableRows = [
                 ['Step', 'Description', 'Input Tables/Data', 'Join Conditions/Operations', 'Business Definition'],
-                ...stepsPerformed.map((s: any) => [s.step.toString(), s.description, s.inputTablesData, s.joinConditionsOperations, s.businessDefinition])
+                ...stepsPerformed.map((s) => [s.step.toString(), s.description, s.inputTablesData, s.joinConditionsOperations, s.businessDefinition])
             ];
             children.push(createStyledTable(stepsTableRows));
         } else {
@@ -225,7 +259,7 @@ function createDocxFromDocumentation(documentation: any, filename: string) {
         if (kpis && kpis.length > 0) {
             const kpiTableRows = [
                 ['KPI/Field', 'Business Definition'],
-                ...kpis.map((k: any) => [k.kpiField, k.businessDefinition])
+                ...kpis.map((k) => [k.kpiField, k.businessDefinition])
             ];
             children.push(createStyledTable(kpiTableRows));
         } else {
@@ -316,7 +350,7 @@ function createStyledTable(tableRows: string[][]) {
       }))
     }),
     // Data rows
-    ...dataRows.map((row, index) => new TableRow({
+    ...dataRows.map((row) => new TableRow({
       children: row.map(cell => new TableCell({
         children: [new Paragraph({
           children: [new TextRun({ 
