@@ -1,0 +1,241 @@
+'use client';
+
+import React, { useState, useCallback } from 'react';
+import { useDropzone } from 'react-dropzone';
+import { ArrowUpTrayIcon, DocumentTextIcon, ArrowDownTrayIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { saveAs } from 'file-saver';
+
+interface DocumentationData {
+  datasetName: string;
+  market: string;
+  primaryOwner: string;
+  refreshFrequency: string;
+  tableName: string;
+  summary: {
+    description: string;
+    tableGrain: string;
+    inputDatasets: string;
+    outputDatasets: string;
+  };
+  processFlow: {
+    highLevel: string;
+    steps: string;
+  };
+  kpis: string;
+}
+
+export default function Home() {
+  const [file, setFile] = useState<File | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isComplete, setIsComplete] = useState(false);
+  const [error, setError] = useState<string>('');
+  const [successMessage, setSuccessMessage] = useState<string>('');
+
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    const uploadedFile = acceptedFiles[0];
+    if (uploadedFile && uploadedFile.name.endsWith('.py')) {
+      setFile(uploadedFile);
+      setError('');
+    } else {
+      setError('Please upload a Python (.py) file');
+    }
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'text/x-python': ['.py'],
+    },
+    multiple: false,
+  });
+
+  const generateDocumentation = async () => {
+    if (!file) return;
+
+    setIsProcessing(true);
+    setError('');
+    setSuccessMessage('');
+    setIsComplete(false);
+
+    try {
+      const fileContent = await file.text();
+      
+      const response = await fetch('/api/generate-docs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          pythonCode: fileContent,
+          filename: file.name,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate documentation');
+      }
+
+      // Handle DOCX file download
+      const blob = await response.blob();
+      const filename = `${file.name.replace('.py', '')}_documentation.docx`;
+      saveAs(blob, filename);
+      
+      setIsComplete(true);
+      setSuccessMessage(`Documentation generated successfully! Downloaded as ${filename}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+
+
+      return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-4xl mx-auto">
+          {/* Header */}
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-full mb-6">
+              <DocumentTextIcon className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-5xl font-bold text-gray-900 mb-4">
+              Python Documentation Generator
+            </h1>
+            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+              Transform your Python code into comprehensive, professional documentation 
+              using AI-powered analysis
+            </p>
+          </div>
+
+          {/* Main Content Card */}
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+            {/* Upload Section */}
+            <div className="p-8">
+              <div
+                {...getRootProps()}
+                className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all duration-300 ${
+                  isDragActive
+                    ? 'border-blue-400 bg-blue-50 scale-105'
+                    : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
+                }`}
+              >
+                <input {...getInputProps()} />
+                
+                {file ? (
+                  <div className="space-y-4">
+                    <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full">
+                      <CheckCircleIcon className="w-8 h-8 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="text-xl font-semibold text-gray-800 mb-2">
+                        {file.name}
+                      </p>
+                      <p className="text-gray-500">
+                        Size: {(file.size / 1024).toFixed(2)} KB
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setFile(null)}
+                      className="text-blue-600 hover:text-blue-700 underline"
+                    >
+                      Choose a different file
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <ArrowUpTrayIcon className="mx-auto w-16 h-16 text-gray-400" />
+                    <div>
+                      <p className="text-xl font-semibold text-gray-700 mb-2">
+                        {isDragActive ? 'Drop your Python file here' : 'Upload Python File'}
+                      </p>
+                      <p className="text-gray-500">
+                        Drag & drop or click to browse • Only .py files accepted
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Status Messages */}
+              {error && (
+                <div className="mt-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center gap-3">
+                  <XCircleIcon className="w-5 h-5 flex-shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              {successMessage && (
+                <div className="mt-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg flex items-center gap-3">
+                  <CheckCircleIcon className="w-5 h-5 flex-shrink-0" />
+                  <span>{successMessage}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Action Section */}
+            {file && (
+              <div className="px-8 pb-8">
+                <div className="bg-gray-50 rounded-xl p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                        Ready to Generate Documentation
+                      </h3>
+                      <p className="text-gray-600">
+                        Your file will be analyzed using AI to create comprehensive DOCX documentation
+                      </p>
+                    </div>
+                    <button
+                      onClick={generateDocumentation}
+                      disabled={isProcessing}
+                      className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 text-white px-8 py-4 rounded-xl font-semibold flex items-center gap-3 transition-all duration-300 shadow-lg hover:shadow-xl disabled:cursor-not-allowed"
+                    >
+                      {isProcessing ? (
+                        <>
+                          <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                          Analyzing & Generating...
+                        </>
+                      ) : (
+                        <>
+                          <DocumentTextIcon className="w-5 h-5" />
+                          Generate DOCX Documentation
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Features Section */}
+          <div className="mt-16 grid md:grid-cols-3 gap-8">
+            <div className="text-center">
+              <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 rounded-lg mb-4">
+                <DocumentTextIcon className="w-6 h-6 text-blue-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">AI-Powered Analysis</h3>
+              <p className="text-gray-600">Advanced AI analyzes your code structure, logic, and data flow</p>
+            </div>
+            <div className="text-center">
+              <div className="inline-flex items-center justify-center w-12 h-12 bg-green-100 rounded-lg mb-4">
+                <CheckCircleIcon className="w-6 h-6 text-green-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">Professional Format</h3>
+              <p className="text-gray-600">Structured documentation with tables, sections, and proper formatting</p>
+            </div>
+            <div className="text-center">
+              <div className="inline-flex items-center justify-center w-12 h-12 bg-purple-100 rounded-lg mb-4">
+                <ArrowDownTrayIcon className="w-6 h-6 text-purple-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">DOCX Export</h3>
+              <p className="text-gray-600">Download ready-to-use Word documents for sharing and collaboration</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
