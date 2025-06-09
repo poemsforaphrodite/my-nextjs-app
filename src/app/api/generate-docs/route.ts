@@ -108,8 +108,9 @@ The JSON object should follow this exact structure:
 - "highLevelProcessFlow" should be an array of strings describing the high-level steps.
 - "stepsPerformed" should be an array of objects, with "step" as a number.
 - "kpis" should be an array of objects.
+- For the "businessDefinition" in "stepsPerformed" and "kpisAndBusinessDefinitions", do not just state that business logic is applied. You must describe the business logic in full detail. For example, instead of writing "Applies business logic to separate attempted calls", write "Filters for records where the 'call_status' is 'attempted' to separate them from successful calls, then persists basic call details including the 'pt_cdl_uuid'."
 
-Please analyze the code thoroughly and provide specific, accurate information based on the actual code structure and logic, populating the JSON structure.
+Please analyze the code thoroughly and provide specific, accurate, and highly detailed information for all fields. All descriptions must be as comprehensive as possible.
 `;
 
 // Helper functions for creating document elements
@@ -424,7 +425,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: `You are a technical documentation expert specializing in data pipeline and analytics code documentation. You create comprehensive, structured documentation that follows specific business templates for data processing workflows.`
+          content: `You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.`
         },
         {
           role: 'user',
