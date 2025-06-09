@@ -15,7 +15,7 @@ import {
   ShadingType,
   convertInchesToTwip
 } from 'docx';
-
+//test
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
