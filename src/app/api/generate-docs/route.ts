@@ -15,13 +15,14 @@ import {
   ShadingType,
   convertInchesToTwip
 } from 'docx';
-//test
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
 const DOCUMENTATION_TEMPLATE = `
-Please analyze the following Python code and generate comprehensive documentation using this exact format:
+Please analyze the following Python code and generate comprehensive documentation using this exact format.
+This template has been updated to test Git deployment with the correct GitHub account:
 
 Dataset Name: [Extract or infer dataset name]	Market: -	Primary Owner: ZS	Refresh Frequency: Daily/Weekly/Monthly
 
@@ -82,7 +83,7 @@ function createDocxFromDocumentation(documentation: string, filename: string) {
     alignment: AlignmentType.CENTER,
     spacing: { after: 400 }
   }));
-//sasdqe
+
   children.push(new Paragraph({
     children: [
       new TextRun({
