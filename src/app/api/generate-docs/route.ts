@@ -15,9 +15,12 @@ import {
   convertInchesToTwip
 } from 'docx';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Initialize OpenAI client conditionally to handle build-time issues
+const openai = process.env.OPENAI_API_KEY 
+  ? new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    })
+  : null;
 
 interface Documentation {
   datasetInfo: {
@@ -110,7 +113,7 @@ The JSON object should follow this exact structure:
 - "kpis" should be an array of objects.
 - For the "businessDefinition" in "stepsPerformed" and "kpisAndBusinessDefinitions", do not just state that business logic is applied. You must describe the business logic in full detail. For example, instead of writing "Applies business logic to separate attempted calls", write "Filters for records where the 'call_status' is 'attempted' to separate them from successful calls, then persists basic call details including the 'pt_cdl_uuid'."
 
-Please analyze the code thoroughly and provide specific, accurate, and highly detailed information for all fields. All descriptions must be as comprehensive as possible.
+Please analyze the code thoroughly and provide specific, accurate, and highly detailed information for all fields. All descriptions must be as comprehensive as possible. Write all KPIs in the business context. Don't leave any KPI fields blank.
 `;
 
 // Helper functions for creating document elements
@@ -412,7 +415,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    if (!process.env.OPENAI_API_KEY || !openai) {
       return NextResponse.json(
         { error: 'OpenAI API key not configured' },
         { status: 500 }
@@ -455,7 +458,7 @@ Please generate the documentation following the exact template format provided a
     try {
       const documentationJson = JSON.parse(documentationString);
       return NextResponse.json(documentationJson);
-    } catch (error) {
+    } catch {
       console.error("Failed to parse JSON from OpenAI:", documentationString);
       return NextResponse.json(
         { error: 'Failed to parse documentation from AI response.' },

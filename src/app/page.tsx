@@ -2,8 +2,15 @@
 
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { ArrowUpTrayIcon, DocumentTextIcon, ArrowDownTrayIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { Upload, FileText, Download, CheckCircle, X, Heart } from 'lucide-react';
 import { saveAs } from 'file-saver';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Separator } from '@/components/ui/separator';
 
 interface Documentation {
   datasetInfo: {
@@ -19,7 +26,7 @@ interface Documentation {
     inputDatasets: string[];
     outputDatasets: {
       tableName: string;
-      description:string;
+      description: string;
     }[];
   };
   processFlow: {
@@ -40,113 +47,206 @@ interface Documentation {
   };
 }
 
-// New component to display the structured documentation
-const DocumentationViewer = ({ documentation, onDownload, isDownloading }: { documentation: Documentation, onDownload: () => void, isDownloading: boolean }) => {
+// Documentation Viewer Component using shadcn/ui
+const _DocumentationViewer = ({ 
+  documentation, 
+  onDownload, 
+  isDownloading 
+}: { 
+  documentation: Documentation;
+  onDownload: () => void;
+  isDownloading: boolean;
+}) => {
   if (!documentation) return null;
 
   const { datasetInfo, summary, processFlow, kpisAndBusinessDefinitions } = documentation;
 
-  const Section = ({ title, children }: { title: string, children: React.ReactNode }) => (
-    <div className="mb-8">
-      <h2 className="text-3xl font-bold text-gray-800 border-b-2 border-gray-200 pb-2 mb-4">{title}</h2>
-      {children}
-    </div>
-  );
-
-  const SubSection = ({ title, children }: { title: string, children: React.ReactNode }) => (
-    <div className="mb-6">
-      <h3 className="text-2xl font-semibold text-gray-700 mb-3">{title}</h3>
-      {children}
-    </div>
-  );
-
-  const Table = ({ headers, data }: { headers: string[], data: (string | number)[][] }) => (
-    <div className="overflow-x-auto">
-      <table className="min-w-full bg-white border border-gray-300">
-        <thead>
-          <tr className="bg-gray-100">
-            {headers.map(h => <th key={h} className="text-left font-semibold text-gray-600 p-3 border-b">{h}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((row, i) => (
-            <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-              {row.map((cell, j) => <td key={j} className="p-3 border-t">{cell}</td>)}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-
   return (
-    <div className="mt-12 p-8 bg-white rounded-2xl shadow-lg border border-gray-200">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-4xl font-bold text-gray-900">Generated Documentation</h1>
-        <button
-          onClick={onDownload}
-          disabled={isDownloading}
-          className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all duration-300 shadow-md hover:shadow-lg disabled:cursor-not-allowed"
-        >
-          {isDownloading ? (
-            <>
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-              Downloading...
-            </>
-          ) : (
-            <>
-              <ArrowDownTrayIcon className="w-5 h-5" />
-              Download DOCX
-            </>
-          )}
-        </button>
-      </div>
+    <div className="mt-8 space-y-6">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-2xl">Generated Documentation</CardTitle>
+            <CardDescription>
+              Comprehensive documentation generated from your Python code
+            </CardDescription>
+          </div>
+          <Button 
+            onClick={onDownload} 
+            disabled={isDownloading}
+            className="min-w-[150px]"
+          >
+            {isDownloading ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" />
+                Downloading...
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4 mr-2" />
+                Download DOCX
+              </>
+            )}
+          </Button>
+        </CardHeader>
+      </Card>
 
+      {/* Dataset Information */}
       {datasetInfo && (
-        <Section title="Dataset Information">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                <div className="bg-blue-50 p-4 rounded-lg"><p className="text-sm text-blue-800 font-semibold">Dataset Name</p><p>{datasetInfo.datasetName}</p></div>
-                <div className="bg-blue-50 p-4 rounded-lg"><p className="text-sm text-blue-800 font-semibold">Market</p><p>{datasetInfo.market}</p></div>
-                <div className="bg-blue-50 p-4 rounded-lg"><p className="text-sm text-blue-800 font-semibold">Primary Owner</p><p>{datasetInfo.primaryOwner}</p></div>
-                <div className="bg-blue-50 p-4 rounded-lg"><p className="text-sm text-blue-800 font-semibold">Refresh Frequency</p><p>{datasetInfo.refreshFrequency}</p></div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Dataset Information</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <Badge variant="secondary">Dataset Name</Badge>
+                <p className="text-sm font-medium">{datasetInfo.datasetName || 'N/A'}</p>
+              </div>
+              <div className="space-y-2">
+                <Badge variant="secondary">Market</Badge>
+                <p className="text-sm font-medium">{datasetInfo.market || 'N/A'}</p>
+              </div>
+              <div className="space-y-2">
+                <Badge variant="secondary">Primary Owner</Badge>
+                <p className="text-sm font-medium">{datasetInfo.primaryOwner || 'N/A'}</p>
+              </div>
+              <div className="space-y-2">
+                <Badge variant="secondary">Refresh Frequency</Badge>
+                <p className="text-sm font-medium">{datasetInfo.refreshFrequency || 'N/A'}</p>
+              </div>
             </div>
-        </Section>
+          </CardContent>
+        </Card>
       )}
 
+      {/* Summary Section */}
       {summary && (
-        <Section title="1. Summary">
-          <SubSection title="1.1 Description"><p>{summary.description}</p></SubSection>
-          <SubSection title="1.2 Table Grain"><p>{summary.tableGrain}</p></SubSection>
-          <SubSection title="1.3 Input Datasets">
-            <ul className="list-disc list-inside">{summary.inputDatasets?.map((d:string, i:number) => <li key={i}>{d}</li>)}</ul>
-          </SubSection>
-          <SubSection title="1.4 Output Datasets">
-            <Table headers={['Table Name', 'Description']} data={summary.outputDatasets?.map((d) => [d.tableName, d.description]) || []} />
-          </SubSection>
-        </Section>
+        <Card>
+          <CardHeader>
+            <CardTitle>1. Summary</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div>
+              <h4 className="text-lg font-semibold mb-2">1.1 Description</h4>
+              <p className="text-muted-foreground">{summary.description}</p>
+            </div>
+            
+            <Separator />
+            
+            <div>
+              <h4 className="text-lg font-semibold mb-2">1.2 Table Grain</h4>
+              <p className="text-muted-foreground">{summary.tableGrain}</p>
+            </div>
+            
+            <Separator />
+            
+            <div>
+              <h4 className="text-lg font-semibold mb-2">1.3 Input Datasets</h4>
+              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                {summary.inputDatasets?.map((dataset, index) => (
+                  <li key={index}>{dataset}</li>
+                ))}
+              </ul>
+            </div>
+            
+            <Separator />
+            
+            <div>
+              <h4 className="text-lg font-semibold mb-4">1.4 Output Datasets</h4>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Table Name</TableHead>
+                    <TableHead>Description</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {summary.outputDatasets?.map((dataset, index) => (
+                    <TableRow key={index}>
+                      <TableCell className="font-medium">{dataset.tableName}</TableCell>
+                      <TableCell>{dataset.description}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
+      {/* Process Flow Section */}
       {processFlow && (
-        <Section title="2. Process Flow & Steps Performed">
-          <SubSection title="2.1 High Level Process Flow">
-            <ul className="list-disc list-inside">{processFlow.highLevelProcessFlow?.map((s: string, i: number) => <li key={i}>{s}</li>)}</ul>
-          </SubSection>
-          <SubSection title="2.2 Steps performed in the code">
-            <Table 
-              headers={['Step', 'Description', 'Input Tables/Data', 'Join Conditions/Operations', 'Business Definition']} 
-              data={processFlow.stepsPerformed?.map((s) => [s.step, s.description, s.inputTablesData, s.joinConditionsOperations, s.businessDefinition]) || []} 
-            />
-          </SubSection>
-        </Section>
+        <Card>
+          <CardHeader>
+            <CardTitle>2. Process Flow & Steps Performed</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div>
+              <h4 className="text-lg font-semibold mb-2">2.1 High Level Process Flow</h4>
+              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                {processFlow.highLevelProcessFlow?.map((step, index) => (
+                  <li key={index}>{step}</li>
+                ))}
+              </ul>
+            </div>
+            
+            <Separator />
+            
+            <div>
+              <h4 className="text-lg font-semibold mb-4">2.2 Steps performed in the code</h4>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Step</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Input Tables/Data</TableHead>
+                    <TableHead>Join Conditions/Operations</TableHead>
+                    <TableHead>Business Definition</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {processFlow.stepsPerformed?.map((step, index) => (
+                    <TableRow key={index}>
+                      <TableCell className="font-medium">{step.step}</TableCell>
+                      <TableCell>{step.description}</TableCell>
+                      <TableCell>{step.inputTablesData}</TableCell>
+                      <TableCell>{step.joinConditionsOperations}</TableCell>
+                      <TableCell>{step.businessDefinition}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
+      {/* KPIs & Business Definitions */}
       {kpisAndBusinessDefinitions && (
-        <Section title="3. KPIs & Business Definitions">
-          <Table 
-            headers={['KPI/Field', 'Business Definition']}
-            data={kpisAndBusinessDefinitions.kpis?.map((k) => [k.kpiField, k.businessDefinition]) || []}
-          />
-        </Section>
+        <Card>
+          <CardHeader>
+            <CardTitle>3. KPIs & Business Definitions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>KPI/Field</TableHead>
+                  <TableHead>Business Definition</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {kpisAndBusinessDefinitions.kpis?.map((kpi, index) => (
+                  <TableRow key={index}>
+                    <TableCell className="font-medium">{kpi.kpiField}</TableCell>
+                    <TableCell>{kpi.businessDefinition}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
@@ -157,15 +257,15 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
-  const [documentation, setDocumentation] = useState<Documentation | null>(null);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [_documentation, _setDocumentation] = useState<Documentation | null>(null);
+  const [_isDownloading, _setIsDownloading] = useState(false);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const uploadedFile = acceptedFiles[0];
     if (uploadedFile && uploadedFile.name.endsWith('.py')) {
       setFile(uploadedFile);
       setError('');
-      setDocumentation(null);
+      _setDocumentation(null);
       setSuccessMessage('');
     } else {
       setError('Please upload a Python (.py) file');
@@ -186,7 +286,7 @@ export default function Home() {
     setIsProcessing(true);
     setError('');
     setSuccessMessage('');
-    setDocumentation(null);
+    _setDocumentation(null);
 
     try {
       const fileContent = await file.text();
@@ -207,9 +307,10 @@ export default function Home() {
         throw new Error(errData.error || 'Failed to generate documentation');
       }
 
-      const data = await response.json();
-      setDocumentation(data);
-      setSuccessMessage(`Documentation generated successfully! You can now view it below or download it as a DOCX file.`);
+      const blob = await response.blob();
+      const filename = `${file.name.replace('.py', '')}_documentation.docx`;
+      saveAs(blob, filename);
+      setSuccessMessage(`Documentation generated and downloaded successfully as ${filename}`);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -218,21 +319,22 @@ export default function Home() {
     }
   };
 
-  const downloadDocumentation = async () => {
-    if (!file || !documentation) return;
+  const _downloadDocumentation = async () => {
+    if (!file) return;
 
-    setIsDownloading(true);
+    _setIsDownloading(true);
     setError('');
     
     try {
+      const fileContent = await file.text();
+      
       const response = await fetch('/api/generate-docs', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          action: 'create-docx',
-          documentation: documentation,
+          pythonCode: fileContent,
           filename: file.name,
         }),
       });
@@ -249,157 +351,201 @@ export default function Home() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
-      setIsDownloading(false);
+      _setIsDownloading(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-7xl mx-auto">
-          {/* Header */}
-          <div className="text-center mb-12">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-full mb-6">
-              <DocumentTextIcon className="w-8 h-8 text-white" />
+      <div className="container mx-auto px-4 py-8 max-w-6xl">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="flex justify-center mb-4">
+            <div className="rounded-full bg-primary p-3">
+              <FileText className="w-8 h-8 text-primary-foreground" />
             </div>
-            <h1 className="text-5xl font-bold text-gray-900 mb-4">
-              Python Documentation Generator
-            </h1>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              Transform your Python code into comprehensive, professional documentation 
-              using AI-powered analysis
-            </p>
           </div>
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">
+            Python Documentation Generator
+          </h1>
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+            Transform your Python code into comprehensive, professional documentation 
+            using AI-powered analysis
+          </p>
+        </div>
 
-          {/* Main Content Card */}
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
-            {/* Upload Section */}
-            <div className="p-8">
-              <div
-                {...getRootProps()}
-                className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all duration-300 ${
-                  isDragActive
-                    ? 'border-blue-400 bg-blue-50 scale-105'
-                    : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
-                }`}
-              >
-                <input {...getInputProps()} />
-                
-                {file ? (
-                  <div className="space-y-4">
-                    <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full">
-                      <CheckCircleIcon className="w-8 h-8 text-green-600" />
+        {/* Main Upload Card */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Upload Python File</CardTitle>
+            <CardDescription>
+              Upload your Python (.py) file to generate comprehensive documentation
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div
+              {...getRootProps()}
+              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all duration-200 ${
+                isDragActive
+                  ? 'border-primary bg-primary/5 scale-[1.02]'
+                  : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
+              }`}
+            >
+              <input {...getInputProps()} />
+              
+              {file ? (
+                <div className="space-y-4">
+                  <div className="flex justify-center">
+                    <div className="rounded-full bg-green-100 p-3">
+                      <CheckCircle className="w-8 h-8 text-green-600" />
                     </div>
-                    <div>
-                      <p className="text-xl font-semibold text-gray-800 mb-2">
-                        {file.name}
-                      </p>
-                      <p className="text-gray-500">
-                        Size: {(file.size / 1024).toFixed(2)} KB
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setFile(null)}
-                      className="text-blue-600 hover:text-blue-700 underline"
-                    >
-                      Choose a different file
-                    </button>
                   </div>
-                ) : (
-                  <div className="space-y-4">
-                    <ArrowUpTrayIcon className="mx-auto w-16 h-16 text-gray-400" />
-                    <div>
-                      <p className="text-xl font-semibold text-gray-700 mb-2">
-                        {isDragActive ? 'Drop your Python file here' : 'Upload Python File'}
-                      </p>
-                      <p className="text-gray-500">
-                        Drag & drop or click to browse • Only .py files accepted
-                      </p>
-                    </div>
+                  <div>
+                    <p className="text-lg font-semibold text-foreground mb-1">
+                      {file.name}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Size: {(file.size / 1024).toFixed(2)} KB
+                    </p>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFile(null);
+                    }}
+                  >
+                    Choose a different file
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <Upload className="mx-auto w-12 h-12 text-muted-foreground" />
+                  <div>
+                    <p className="text-lg font-semibold text-foreground mb-1">
+                      {isDragActive ? 'Drop your Python file here' : 'Upload Python File'}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Drag & drop or click to browse • Only .py files accepted
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Status Messages */}
+            {error && (
+              <Alert variant="destructive" className="mt-4">
+                <X className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {successMessage && (
+              <Alert className="mt-4 border-green-200 bg-green-50 text-green-800">
+                <CheckCircle className="h-4 w-4" />
+                <AlertDescription>{successMessage}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Generate Button */}
+            {file && (
+              <div className="mt-6 p-4 bg-muted rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold mb-1">Ready to Generate Documentation</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Your file will be analyzed using AI to create comprehensive DOCX documentation
+                    </p>
+                  </div>
+                  <Button
+                    onClick={generateDocumentation}
+                    disabled={isProcessing}
+                    size="lg"
+                    className="min-w-[200px]"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="w-4 h-4 mr-2" />
+                        Generate Documentation
+                      </>
+                    )}
+                  </Button>
+                </div>
+                
+                {isProcessing && (
+                  <div className="mt-4">
+                    <Progress value={33} className="w-full" />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Analyzing code and generating documentation...
+                    </p>
                   </div>
                 )}
               </div>
-
-              {/* Status Messages */}
-              {error && (
-                <div className="mt-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center gap-3">
-                  <XCircleIcon className="w-5 h-5 flex-shrink-0" />
-                  <span>{error}</span>
-                </div>
-              )}
-
-              {successMessage && (
-                <div className="mt-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg flex items-center gap-3">
-                  <CheckCircleIcon className="w-5 h-5 flex-shrink-0" />
-                  <span>{successMessage}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Action Section */}
-            {file && !documentation && (
-              <div className="px-8 pb-8">
-                <div className="bg-gray-50 rounded-xl p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                        Ready to Generate Documentation
-                      </h3>
-                      <p className="text-gray-600">
-                        Your file will be analyzed using AI to create comprehensive DOCX documentation
-                      </p>
-                    </div>
-                    <button
-                      onClick={generateDocumentation}
-                      disabled={isProcessing}
-                      className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 text-white px-8 py-4 rounded-xl font-semibold flex items-center gap-3 transition-all duration-300 shadow-lg hover:shadow-xl disabled:cursor-not-allowed"
-                    >
-                      {isProcessing ? (
-                        <>
-                          <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                          Analyzing & Generating...
-                        </>
-                      ) : (
-                        <>
-                          <DocumentTextIcon className="w-5 h-5" />
-                          Generate Documentation
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
             )}
-          </div>
+          </CardContent>
+        </Card>
 
-          {/* Documentation Viewer */}
-          {documentation && <DocumentationViewer documentation={documentation} onDownload={downloadDocumentation} isDownloading={isDownloading} />}
+        {/* Features Cards */}
+        <div className="grid md:grid-cols-3 gap-6 mb-8">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center text-center space-y-2">
+                <div className="rounded-full bg-blue-100 p-3">
+                  <FileText className="w-6 h-6 text-blue-600" />
+                </div>
+                <h3 className="font-semibold">AI-Powered Analysis</h3>
+                <p className="text-sm text-muted-foreground">
+                  Advanced AI analyzes your code structure, logic, and data flow
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
-          {/* Features Section */}
-          <div className="mt-16 grid md:grid-cols-3 gap-8">
-            <div className="text-center">
-              <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 rounded-lg mb-4">
-                <DocumentTextIcon className="w-6 h-6 text-blue-600" />
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center text-center space-y-2">
+                <div className="rounded-full bg-green-100 p-3">
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                </div>
+                <h3 className="font-semibold">Professional Format</h3>
+                <p className="text-sm text-muted-foreground">
+                  Structured documentation with tables, sections, and proper formatting
+                </p>
               </div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-2">AI-Powered Analysis</h3>
-              <p className="text-gray-600">Advanced AI analyzes your code structure, logic, and data flow</p>
-            </div>
-            <div className="text-center">
-              <div className="inline-flex items-center justify-center w-12 h-12 bg-green-100 rounded-lg mb-4">
-                <CheckCircleIcon className="w-6 h-6 text-green-600" />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center text-center space-y-2">
+                <div className="rounded-full bg-purple-100 p-3">
+                  <Download className="w-6 h-6 text-purple-600" />
+                </div>
+                <h3 className="font-semibold">DOCX Export</h3>
+                <p className="text-sm text-muted-foreground">
+                  Download ready-to-use Word documents for sharing and collaboration
+                </p>
               </div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-2">Professional Format</h3>
-              <p className="text-gray-600">Structured documentation with tables, sections, and proper formatting</p>
-            </div>
-            <div className="text-center">
-              <div className="inline-flex items-center justify-center w-12 h-12 bg-purple-100 rounded-lg mb-4">
-                <ArrowDownTrayIcon className="w-6 h-6 text-purple-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-800 mb-2">DOCX Export</h3>
-              <p className="text-gray-600">Download ready-to-use Word documents for sharing and collaboration</p>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </div>
+
+        {/* Footer with Attribution */}
+        <footer className="mt-16 py-8 border-t border-muted">
+          <div className="text-center">
+            <p className="text-muted-foreground flex items-center justify-center gap-2">
+              Made with <Heart className="w-4 h-4 fill-red-500 text-red-500" /> by{' '}
+              <span className="font-semibold text-foreground">Pushpender Solanki</span>{' '}
+              <Badge variant="secondary">@ZS</Badge>
+            </p>
+          </div>
+        </footer>
       </div>
     </div>
   );
