@@ -60,7 +60,7 @@ interface Documentation {
 const DOCUMENTATION_TEMPLATE = `
 Please analyze the following Python code and generate comprehensive documentation in a structured JSON format.
 This template has been updated to test Git deployment with the correct GitHub account.
-
+Grain means grain of the dataset at which data is present for example product_id, customer_id, etc.
 You must output a single JSON object. Do not include any other text before or after the JSON.
 The JSON object should follow this exact structure:
 
