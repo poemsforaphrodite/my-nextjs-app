@@ -12,6 +12,7 @@ import {
   WidthType,
   BorderStyle,
   AlignmentType,
+  ShadingType,
   convertInchesToTwip
 } from 'docx';
 
@@ -149,9 +150,9 @@ function createSubHeader(text: string): Paragraph {
 }
 
 function createParagraph(text: string): Paragraph {
-    if (!text) return new Paragraph("");
+    if (!text || text.trim() === '') return new Paragraph({ text: " " });
     return new Paragraph({
-        children: [new TextRun({ text, size: 22, color: "212121" })],
+        children: [new TextRun({ text: text.trim(), size: 22, color: "212121" })],
         spacing: { after: 150, before: 50 },
         alignment: AlignmentType.JUSTIFIED
     });
@@ -159,7 +160,7 @@ function createParagraph(text: string): Paragraph {
 
 function createBullet(text: string): Paragraph {
     return new Paragraph({
-        children: [new TextRun({ text, size: 22, color: "424242" })],
+        children: [new TextRun({ text: text || '', size: 22, color: "424242" })],
         bullet: { level: 0 },
         spacing: { after: 120, before: 60 },
         indent: { left: convertInchesToTwip(0.25) }
@@ -294,13 +295,14 @@ function createInfoTable(data: string[][]) {
         children: headers.map(header => new TableCell({
           children: [new Paragraph({
             children: [new TextRun({ 
-              text: header, 
+              text: header || '', 
               bold: true, 
-              color: "000000",
+              color: "FFFFFF",
               size: 20
             })],
             alignment: AlignmentType.CENTER
           })],
+          shading: { fill: "2E86AB", type: ShadingType.SOLID },
           margins: { top: 200, bottom: 200, left: 200, right: 200 }
         }))
       }),
@@ -308,12 +310,13 @@ function createInfoTable(data: string[][]) {
         children: values.map((cell) => new TableCell({
           children: [new Paragraph({
             children: [new TextRun({ 
-              text: cell,
+              text: cell || '',
               size: 20,
-              color: "000000"
+              color: "212121"
             })],
             alignment: AlignmentType.CENTER
           })],
+          shading: { fill: "F5F5F5", type: ShadingType.SOLID },
           margins: { top: 200, bottom: 200, left: 200, right: 200 }
         }))
       })
@@ -326,8 +329,7 @@ function createInfoTable(data: string[][]) {
       insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: "CCCCCC" },
       insideVertical: { style: BorderStyle.SINGLE, size: 2, color: "CCCCCC" }
     },
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    margins: { top: 200, bottom: 400 }
+    width: { size: 100, type: WidthType.PERCENTAGE }
   });
 }
 
@@ -342,28 +344,33 @@ function createStyledTable(tableRows: string[][]) {
       children: headerRow.map(cell => new TableCell({
         children: [new Paragraph({
           children: [new TextRun({ 
-            text: cell.trim(), 
+            text: (cell || '').trim(), 
             bold: true, 
-            color: "000000",
+            color: "FFFFFF",
             size: 20
           })],
           alignment: AlignmentType.CENTER
         })],
+        shading: { fill: "1B5E20", type: ShadingType.SOLID },
         margins: { top: 200, bottom: 200, left: 200, right: 200 },
         width: { size: 100 / headerRow.length, type: WidthType.PERCENTAGE }
       }))
     }),
     // Data rows
-    ...dataRows.map((row) => new TableRow({
+    ...dataRows.map((row, index) => new TableRow({
       children: row.map(cell => new TableCell({
         children: [new Paragraph({
           children: [new TextRun({ 
-            text: cell.trim(),
+            text: (cell || '').trim(),
             size: 20,
-            color: "000000"
+            color: "212121"
           })],
           alignment: AlignmentType.LEFT
         })],
+        shading: { 
+          fill: index % 2 === 0 ? "F8F9FA" : "FFFFFF", 
+          type: ShadingType.SOLID 
+        },
         margins: { top: 150, bottom: 150, left: 200, right: 200 },
         width: { size: 100 / headerRow.length, type: WidthType.PERCENTAGE }
       }))
@@ -380,33 +387,13 @@ function createStyledTable(tableRows: string[][]) {
       insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: "E0E0E0" },
       insideVertical: { style: BorderStyle.SINGLE, size: 2, color: "E0E0E0" }
     },
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    margins: { top: 300, bottom: 400 }
+    width: { size: 100, type: WidthType.PERCENTAGE }
   });
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { action } = body;
-
-    if (action === 'create-docx') {
-      const { documentation, filename } = body;
-      if (!documentation || !filename) {
-        return NextResponse.json({ error: 'Documentation data and filename are required' }, { status: 400 });
-      }
-      const doc = createDocxFromDocumentation(documentation, filename);
-      const buffer = await Packer.toBuffer(doc);
-
-      return new NextResponse(buffer, {
-        headers: {
-          'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'Content-Disposition': `attachment; filename="${filename.replace('.py', '')}_documentation.docx"`,
-        },
-      });
-    }
-
-    const { pythonCode, filename } = body;
+    const { pythonCode, filename, format } = await request.json();
 
     if (!pythonCode) {
       return NextResponse.json(
@@ -457,7 +444,23 @@ Please generate the documentation following the exact template format provided a
     
     try {
       const documentationJson = JSON.parse(documentationString);
+      
+      // If format is 'docx', create and return DOCX file
+      if (format === 'docx') {
+        const doc = createDocxFromDocumentation(documentationJson, filename);
+        const buffer = await Packer.toBuffer(doc);
+
+        return new NextResponse(buffer, {
+          headers: {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'Content-Disposition': `attachment; filename="${filename.replace('.py', '')}_documentation.docx"`,
+          },
+        });
+      }
+      
+      // Otherwise return JSON for UI display
       return NextResponse.json(documentationJson);
+      
     } catch {
       console.error("Failed to parse JSON from OpenAI:", documentationString);
       return NextResponse.json(

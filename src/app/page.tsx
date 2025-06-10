@@ -48,14 +48,16 @@ interface Documentation {
 }
 
 // Documentation Viewer Component using shadcn/ui
-const _DocumentationViewer = ({ 
+const DocumentationViewer = ({ 
   documentation, 
   onDownload, 
-  isDownloading 
+  isDownloading,
+  filename 
 }: { 
   documentation: Documentation;
   onDownload: () => void;
   isDownloading: boolean;
+  filename: string;
 }) => {
   if (!documentation) return null;
 
@@ -68,7 +70,7 @@ const _DocumentationViewer = ({
           <div>
             <CardTitle className="text-2xl">Generated Documentation</CardTitle>
             <CardDescription>
-              Comprehensive documentation generated from your Python code
+              Comprehensive documentation generated from {filename}
             </CardDescription>
           </div>
           <Button 
@@ -195,28 +197,30 @@ const _DocumentationViewer = ({
             
             <div>
               <h4 className="text-lg font-semibold mb-4">2.2 Steps performed in the code</h4>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Step</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Input Tables/Data</TableHead>
-                    <TableHead>Join Conditions/Operations</TableHead>
-                    <TableHead>Business Definition</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {processFlow.stepsPerformed?.map((step, index) => (
-                    <TableRow key={index}>
-                      <TableCell className="font-medium">{step.step}</TableCell>
-                      <TableCell>{step.description}</TableCell>
-                      <TableCell>{step.inputTablesData}</TableCell>
-                      <TableCell>{step.joinConditionsOperations}</TableCell>
-                      <TableCell>{step.businessDefinition}</TableCell>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Step</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Input Tables/Data</TableHead>
+                      <TableHead>Join Conditions/Operations</TableHead>
+                      <TableHead>Business Definition</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {processFlow.stepsPerformed?.map((step, index) => (
+                      <TableRow key={index}>
+                        <TableCell className="font-medium">{step.step}</TableCell>
+                        <TableCell>{step.description}</TableCell>
+                        <TableCell>{step.inputTablesData}</TableCell>
+                        <TableCell>{step.joinConditionsOperations}</TableCell>
+                        <TableCell>{step.businessDefinition}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -257,15 +261,15 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
-  const [_documentation, _setDocumentation] = useState<Documentation | null>(null);
-  const [_isDownloading, _setIsDownloading] = useState(false);
+  const [documentation, setDocumentation] = useState<Documentation | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const uploadedFile = acceptedFiles[0];
     if (uploadedFile && uploadedFile.name.endsWith('.py')) {
       setFile(uploadedFile);
       setError('');
-      _setDocumentation(null);
+      setDocumentation(null);
       setSuccessMessage('');
     } else {
       setError('Please upload a Python (.py) file');
@@ -286,11 +290,12 @@ export default function Home() {
     setIsProcessing(true);
     setError('');
     setSuccessMessage('');
-    _setDocumentation(null);
+    setDocumentation(null);
 
     try {
       const fileContent = await file.text();
       
+      // Generate JSON documentation for UI display
       const response = await fetch('/api/generate-docs', {
         method: 'POST',
         headers: {
@@ -299,6 +304,7 @@ export default function Home() {
         body: JSON.stringify({
           pythonCode: fileContent,
           filename: file.name,
+          format: 'json'
         }),
       });
 
@@ -307,10 +313,9 @@ export default function Home() {
         throw new Error(errData.error || 'Failed to generate documentation');
       }
 
-      const blob = await response.blob();
-      const filename = `${file.name.replace('.py', '')}_documentation.docx`;
-      saveAs(blob, filename);
-      setSuccessMessage(`Documentation generated and downloaded successfully as ${filename}`);
+      const data = await response.json();
+      setDocumentation(data);
+      setSuccessMessage(`Documentation generated successfully! You can view it below or download it as a DOCX file.`);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -319,15 +324,16 @@ export default function Home() {
     }
   };
 
-  const _downloadDocumentation = async () => {
+  const downloadDocumentation = async () => {
     if (!file) return;
 
-    _setIsDownloading(true);
+    setIsDownloading(true);
     setError('');
     
     try {
       const fileContent = await file.text();
       
+      // Generate DOCX file for download
       const response = await fetch('/api/generate-docs', {
         method: 'POST',
         headers: {
@@ -336,6 +342,7 @@ export default function Home() {
         body: JSON.stringify({
           pythonCode: fileContent,
           filename: file.name,
+          format: 'docx'
         }),
       });
 
@@ -351,7 +358,7 @@ export default function Home() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
-      _setIsDownloading(false);
+      setIsDownloading(false);
     }
   };
 
@@ -455,7 +462,7 @@ export default function Home() {
                   <div>
                     <h3 className="font-semibold mb-1">Ready to Generate Documentation</h3>
                     <p className="text-sm text-muted-foreground">
-                      Your file will be analyzed using AI to create comprehensive DOCX documentation
+                      Your file will be analyzed using AI to create comprehensive documentation
                     </p>
                   </div>
                   <Button
@@ -490,6 +497,16 @@ export default function Home() {
             )}
           </CardContent>
         </Card>
+
+        {/* Documentation Viewer */}
+        {documentation && file && (
+          <DocumentationViewer 
+            documentation={documentation} 
+            onDownload={downloadDocumentation} 
+            isDownloading={isDownloading}
+            filename={file.name}
+          />
+        )}
 
         {/* Features Cards */}
         <div className="grid md:grid-cols-3 gap-6 mb-8">
