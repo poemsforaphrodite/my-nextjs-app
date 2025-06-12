@@ -33,15 +33,18 @@ export interface Documentation {
   databricksTables: {
     tableName: string;
     description: string;
-  }[]; // Output tables written in Databricks
+  }[];
   tableMetadata: {
-    columnName: string;
-    dataType: string;
-    description: string;
-    sampleValues: string;
-    sourceTable: string;
-    sourceColumn: string;
-  }[]; // Column-level metadata for final table
+    tableName: string; // Output table name
+    columns: {
+      columnName: string;
+      dataType: string;
+      description: string;
+      sampleValues: string;
+      sourceTable: string;
+      sourceColumn: string;
+    }[];
+  }[]; // Metadata grouped by table
   integratedRules: string[]; // Bullet list describing the data transformation / business rules applied
 }
 
@@ -66,12 +69,17 @@ JSON FORMAT (copy exactly – populate all placeholders):
   ],
   "tableMetadata": [
     {
-      "columnName": "string",
-      "dataType": "string",
-      "description": "string",
-      "sampleValues": "string",
-      "sourceTable": "string",
-      "sourceColumn": "string"
+      "tableName": "string",
+      "columns": [
+        {
+          "columnName": "string",
+          "dataType": "string",
+          "description": "string",
+          "sampleValues": "string",
+          "sourceTable": "string",
+          "sourceColumn": "string"
+        }
+      ]
     }
   ],
   "integratedRules": ["string"]
@@ -80,7 +88,10 @@ JSON FORMAT (copy exactly – populate all placeholders):
 Additional Guidance:
 - Populate "dataSources" with ALL input tables or files referenced in the script.
 - "databricksTables" lists every table the script creates or overwrites in Databricks along with a concise business-focused description.
-- "tableMetadata" should have one entry PER COLUMN ACROSS ALL OUTPUT TABLES listed in "databricksTables". If there are multiple output tables, include the metadata for each column of each table (identify the table via the "sourceTable" field). Provide meaningful sample values if possible.
+- "tableMetadata" must be an array, one object per output table listed in "databricksTables". Each object has:
+    "tableName": the output table name, and
+    "columns": an array with one entry per column (fields: columnName, dataType, description, sampleValues, sourceTable, sourceColumn).
+  This groups metadata table-wise rather than mixing all columns together.
 - "integratedRules" should be a BULLETED LIST (array of strings) in logical order summarising the transformations/business logic. DO NOT return this as a table. Write ALL rules—do not omit any.
 - For the "sourceTable" field in "tableMetadata": if the script uses a temporary view or CTE, resolve it to the ORIGINAL underlying table (i.e., the real table or file from which the temp view is created). Do NOT use the temp view name here.
 - Do NOT omit any property. Use "N/A" if genuinely unknown – avoid leaving blanks.
@@ -209,30 +220,34 @@ function createDocxFromDocumentation(documentation: Documentation, filename: str
     children.push(createParagraph("No Databricks tables specified."));
   }
 
-  // 5. Table Metadata
+  // 5. Table Metadata (grouped per table)
   children.push(createSectionHeader("5. Table Metadata"));
   if (documentation.tableMetadata && documentation.tableMetadata.length > 0) {
-    const metaRows: string[][] = [
-      [
-        "Column Name",
-        "Datatype",
-        "Description",
-        "Sample Values",
-        "Source Table",
-        "Source Column",
-      ],
-      ...documentation.tableMetadata.map((m: Documentation["tableMetadata"][0]) => [
-        m.columnName,
-        m.dataType,
-        m.description,
-        m.sampleValues,
-        m.sourceTable,
-        m.sourceColumn,
-      ]),
-    ];
-    children.push(createStyledTable(metaRows));
+    documentation.tableMetadata.forEach((tblMeta) => {
+      // Sub-header per table
+      children.push(_createSubHeader(`Table: ${tblMeta.tableName}`));
+      const rows: string[][] = [
+        [
+          "Column Name",
+          "Data Type",
+          "Description",
+          "Sample Values",
+          "Source Table",
+          "Source Column",
+        ],
+        ...tblMeta.columns.map((c) => [
+          c.columnName,
+          c.dataType,
+          c.description,
+          c.sampleValues,
+          c.sourceTable,
+          c.sourceColumn,
+        ]),
+      ];
+      children.push(createStyledTable(rows));
+    });
   } else {
-    children.push(createParagraph("No column metadata provided."));
+    children.push(createParagraph("No table metadata provided."));
   }
 
   // 6. Integrated Rules
@@ -279,7 +294,7 @@ function _createInfoTable(data: string[][]) {
             })],
             alignment: AlignmentType.CENTER
           })],
-          shading: { fill: "D9EAD3", type: ShadingType.SOLID },
+          shading: { fill: "FFFFFF", type: ShadingType.SOLID },
           margins: { top: 200, bottom: 200, left: 200, right: 200 }
         }))
       }),
@@ -289,7 +304,7 @@ function _createInfoTable(data: string[][]) {
             children: [new TextRun({ 
               text: cell || '',
               size: 20,
-              color: "FFFFFF"
+              color: "000000"
             })],
             alignment: AlignmentType.CENTER
           })],
@@ -299,10 +314,10 @@ function _createInfoTable(data: string[][]) {
       })
     ],
     borders: {
-      top: { style: BorderStyle.SINGLE, size: 4, color: "4CAF50" },
-      bottom: { style: BorderStyle.SINGLE, size: 4, color: "4CAF50" },
-      left: { style: BorderStyle.SINGLE, size: 4, color: "4CAF50" },
-      right: { style: BorderStyle.SINGLE, size: 4, color: "4CAF50" },
+      top: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
+      bottom: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
+      left: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
+      right: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
       insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: "CCCCCC" },
       insideVertical: { style: BorderStyle.SINGLE, size: 2, color: "CCCCCC" }
     },
@@ -328,7 +343,7 @@ function createStyledTable(tableRows: string[][]) {
           })],
           alignment: AlignmentType.CENTER
         })],
-        shading: { fill: "D9EAD3", type: ShadingType.SOLID },
+        shading: { fill: "FFFFFF", type: ShadingType.SOLID },
         margins: { top: 200, bottom: 200, left: 200, right: 200 },
         width: { size: 100 / headerRow.length, type: WidthType.PERCENTAGE }
       }))
@@ -340,12 +355,12 @@ function createStyledTable(tableRows: string[][]) {
           children: [new TextRun({ 
             text: (cell || '').trim(),
             size: 20,
-            color: "FFFFFF"
+            color: "000000"
           })],
           alignment: AlignmentType.LEFT
         })],
         shading: { 
-          fill: index % 2 === 0 ? "FFFFFF" : "FFFFFF", 
+          fill: index % 2 === 0 ? "F7F7F7" : "FFFFFF", 
           type: ShadingType.SOLID 
         },
         margins: { top: 150, bottom: 150, left: 200, right: 200 },
@@ -357,12 +372,12 @@ function createStyledTable(tableRows: string[][]) {
   return new Table({
     rows: docRows,
     borders: {
-      top: { style: BorderStyle.SINGLE, size: 6, color: "3C8D0F" },
-      bottom: { style: BorderStyle.SINGLE, size: 6, color: "3C8D0F" },
-      left: { style: BorderStyle.SINGLE, size: 4, color: "3C8D0F" },
-      right: { style: BorderStyle.SINGLE, size: 4, color: "3C8D0F" },
-      insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: "E0E0E0" },
-      insideVertical: { style: BorderStyle.SINGLE, size: 2, color: "E0E0E0" }
+      top: { style: BorderStyle.SINGLE, size: 6, color: "CCCCCC" },
+      bottom: { style: BorderStyle.SINGLE, size: 6, color: "CCCCCC" },
+      left: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
+      right: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: "CCCCCC" },
+      insideVertical: { style: BorderStyle.SINGLE, size: 2, color: "CCCCCC" }
     },
     width: { size: 100, type: WidthType.PERCENTAGE }
   });
