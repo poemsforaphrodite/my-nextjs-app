@@ -103,7 +103,7 @@ function createSectionHeader(text: string): Paragraph {
     });
 }
 
-function createSubHeader(text: string): Paragraph {
+function _createSubHeader(text: string): Paragraph {
     return new Paragraph({
         children: [
             new TextRun({
@@ -261,7 +261,7 @@ function createDocxFromDocumentation(documentation: Documentation, filename: str
   });
 }
 
-function createInfoTable(data: string[][]) {
+function _createInfoTable(data: string[][]) {
   const headers = data.map(d => d[0]);
   const values = data.map(d => d[1]);
   
