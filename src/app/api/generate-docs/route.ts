@@ -278,7 +278,7 @@ function _createInfoTable(data: string[][]) {
             })],
             alignment: AlignmentType.CENTER
           })],
-          shading: { fill: "2E86AB", type: ShadingType.SOLID },
+          shading: { fill: "4CAF50", type: ShadingType.SOLID },
           margins: { top: 200, bottom: 200, left: 200, right: 200 }
         }))
       }),
@@ -298,10 +298,10 @@ function _createInfoTable(data: string[][]) {
       })
     ],
     borders: {
-      top: { style: BorderStyle.SINGLE, size: 4, color: "2E86AB" },
-      bottom: { style: BorderStyle.SINGLE, size: 4, color: "2E86AB" },
-      left: { style: BorderStyle.SINGLE, size: 4, color: "2E86AB" },
-      right: { style: BorderStyle.SINGLE, size: 4, color: "2E86AB" },
+      top: { style: BorderStyle.SINGLE, size: 4, color: "4CAF50" },
+      bottom: { style: BorderStyle.SINGLE, size: 4, color: "4CAF50" },
+      left: { style: BorderStyle.SINGLE, size: 4, color: "4CAF50" },
+      right: { style: BorderStyle.SINGLE, size: 4, color: "4CAF50" },
       insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: "CCCCCC" },
       insideVertical: { style: BorderStyle.SINGLE, size: 2, color: "CCCCCC" }
     },
@@ -327,7 +327,7 @@ function createStyledTable(tableRows: string[][]) {
           })],
           alignment: AlignmentType.CENTER
         })],
-        shading: { fill: "1B5E20", type: ShadingType.SOLID },
+        shading: { fill: "4CAF50", type: ShadingType.SOLID },
         margins: { top: 200, bottom: 200, left: 200, right: 200 },
         width: { size: 100 / headerRow.length, type: WidthType.PERCENTAGE }
       }))
@@ -356,10 +356,10 @@ function createStyledTable(tableRows: string[][]) {
   return new Table({
     rows: docRows,
     borders: {
-      top: { style: BorderStyle.SINGLE, size: 6, color: "1B5E20" },
-      bottom: { style: BorderStyle.SINGLE, size: 6, color: "1B5E20" },
-      left: { style: BorderStyle.SINGLE, size: 4, color: "1B5E20" },
-      right: { style: BorderStyle.SINGLE, size: 4, color: "1B5E20" },
+      top: { style: BorderStyle.SINGLE, size: 6, color: "4CAF50" },
+      bottom: { style: BorderStyle.SINGLE, size: 6, color: "4CAF50" },
+      left: { style: BorderStyle.SINGLE, size: 4, color: "4CAF50" },
+      right: { style: BorderStyle.SINGLE, size: 4, color: "4CAF50" },
       insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: "E0E0E0" },
       insideVertical: { style: BorderStyle.SINGLE, size: 2, color: "E0E0E0" }
     },
@@ -372,26 +372,88 @@ export async function POST(request: NextRequest) {
     const { pythonCode, filename, format } = await request.json();
 
     if (!pythonCode) {
-      return NextResponse.json(
-        { error: 'Python code is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Python code is required' }, { status: 400 });
     }
 
     if (!process.env.OPENAI_API_KEY || !openai) {
-      return NextResponse.json(
-        { error: 'OpenAI API key not configured' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 });
     }
+
+    // ---------------------------------------------
+    // STREAMING PATH (JSON response / default case)
+    // ---------------------------------------------
+    if (format !== 'docx') {
+      const encoder = new TextEncoder();
+
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          try {
+            const completion = await openai.chat.completions.create({
+              model: 'o3-2025-04-16',
+              response_format: { type: 'json_object' },
+              stream: true,
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    'You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.',
+                },
+                {
+                  role: 'user',
+                  content: `${DOCUMENTATION_TEMPLATE}
+
+Python file: ${filename}
+
+Python Code:
+\`\`\`python
+${pythonCode}
+\`\`\`
+
+Please generate the documentation following the exact template format provided above.`,
+                },
+              ],
+            });
+
+            interface StreamChunk {
+              choices: { delta?: { content?: string } }[];
+            }
+
+            for await (const chunk of completion as AsyncIterable<StreamChunk>) {
+              const delta = chunk.choices?.[0]?.delta?.content ?? '';
+              if (delta) {
+                controller.enqueue(encoder.encode(delta));
+              }
+            }
+
+            controller.close();
+          } catch (err) {
+            console.error('Stream error:', err);
+            controller.error(err);
+          }
+        },
+      });
+
+      return new NextResponse(stream, {
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        },
+      });
+    }
+
+    // ---------------------------------------------
+    // DOCX PATH (non-streaming)
+    // ---------------------------------------------
 
     const completion = await openai.chat.completions.create({
       model: 'o3-2025-04-16',
-      response_format: { type: "json_object" },
+      response_format: { type: 'json_object' },
       messages: [
         {
           role: 'system',
-          content: `You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.`
+          content:
+            'You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.',
         },
         {
           role: 'user',
@@ -404,60 +466,36 @@ Python Code:
 ${pythonCode}
 \`\`\`
 
-Please generate the documentation following the exact template format provided above.`
-        }
+Please generate the documentation following the exact template format provided above.`,
+        },
       ],
     });
 
     const documentationString = completion.choices[0]?.message?.content;
 
     if (!documentationString) {
-      return NextResponse.json(
-        { error: 'Failed to generate documentation' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'Failed to generate documentation' }, { status: 500 });
     }
-    
+
     try {
       const documentationJson = JSON.parse(documentationString);
-      
-      // If format is 'docx', create and return DOCX file
-      if (format === 'docx') {
-        const doc = createDocxFromDocumentation(documentationJson, filename);
-        const buffer = await Packer.toBuffer(doc);
 
-        return new NextResponse(buffer, {
-          headers: {
-            'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'Content-Disposition': `attachment; filename="${filename.replace('.py', '')}_documentation.docx"`,
-          },
-        });
-      }
-      
-      // Otherwise return JSON for UI display
-      return NextResponse.json(documentationJson);
-      
-    } catch {
-      console.error("Failed to parse JSON from OpenAI:", documentationString);
-      return NextResponse.json(
-        { error: 'Failed to parse documentation from AI response.' },
-        { status: 500 }
-      );
+      const doc = createDocxFromDocumentation(documentationJson, filename);
+      const buffer = await Packer.toBuffer(doc);
+
+      return new NextResponse(buffer, {
+        headers: {
+          'Content-Type':
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'Content-Disposition': `attachment; filename="${filename.replace('.py', '')}_documentation.docx"`,
+        },
+      });
+    } catch (err) {
+      console.error('Failed to parse JSON for DOCX:', err);
+      return NextResponse.json({ error: 'Failed to parse documentation' }, { status: 500 });
     }
-
   } catch (error) {
     console.error('Error generating documentation:', error);
-    
-    if (error instanceof Error && error.message.includes('model')) {
-      return NextResponse.json(
-        { error: 'O4-mini model not available. Please check your OpenAI API access.' },
-        { status: 400 }
-      );
-    }
-    
-    return NextResponse.json(
-      { error: 'Failed to generate documentation' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to generate documentation' }, { status: 500 });
   }
 } 

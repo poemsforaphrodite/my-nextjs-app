@@ -10,41 +10,24 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Separator } from '@/components/ui/separator';
 
 interface Documentation {
-  datasetInfo: {
-    datasetName: string | null;
-    market: string | null;
-    primaryOwner: string | null;
-    refreshFrequency: string | null;
-    schemaTableName: string | null;
-  };
-  summary: {
+  description: string;
+  tableGrain: string;
+  dataSources: string[];
+  databricksTables: {
+    tableName: string;
     description: string;
-    tableGrain: string;
-    inputDatasets: string[];
-    outputDatasets: {
-      tableName: string;
-      description: string;
-    }[];
-  };
-  processFlow: {
-    highLevelProcessFlow: string[];
-    stepsPerformed: {
-      step: number;
-      description: string;
-      inputTablesData: string;
-      joinConditionsOperations: string;
-      businessDefinition: string;
-    }[];
-  };
-  kpisAndBusinessDefinitions: {
-    kpis: {
-      kpiField: string;
-      businessDefinition: string;
-    }[];
-  };
+  }[];
+  tableMetadata: {
+    columnName: string;
+    dataType: string;
+    description: string;
+    sampleValues: string;
+    sourceTable: string;
+    sourceColumn: string;
+  }[];
+  integratedRules: string[];
 }
 
 // Documentation Viewer Component using shadcn/ui
@@ -61,7 +44,7 @@ const DocumentationViewer = ({
 }) => {
   if (!documentation) return null;
 
-  const { datasetInfo, summary, processFlow, kpisAndBusinessDefinitions } = documentation;
+  const { description, tableGrain, dataSources, databricksTables, tableMetadata, integratedRules } = documentation;
 
   return (
     <div className="mt-8 space-y-6">
@@ -93,165 +76,111 @@ const DocumentationViewer = ({
         </CardHeader>
       </Card>
 
-      {/* Dataset Information */}
-      {datasetInfo && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Dataset Information</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <Badge variant="secondary">Dataset Name</Badge>
-                <p className="text-sm font-medium">{datasetInfo.datasetName || 'N/A'}</p>
-              </div>
-              <div className="space-y-2">
-                <Badge variant="secondary">Market</Badge>
-                <p className="text-sm font-medium">{datasetInfo.market || 'N/A'}</p>
-              </div>
-              <div className="space-y-2">
-                <Badge variant="secondary">Primary Owner</Badge>
-                <p className="text-sm font-medium">{datasetInfo.primaryOwner || 'N/A'}</p>
-              </div>
-              <div className="space-y-2">
-                <Badge variant="secondary">Refresh Frequency</Badge>
-                <p className="text-sm font-medium">{datasetInfo.refreshFrequency || 'N/A'}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* 1. Description */}
+      <Card>
+        <CardHeader>
+          <CardTitle>1. Description</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground whitespace-pre-line">{description}</p>
+        </CardContent>
+      </Card>
 
-      {/* Summary Section */}
-      {summary && (
-        <Card>
-          <CardHeader>
-            <CardTitle>1. Summary</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div>
-              <h4 className="text-lg font-semibold mb-2">1.1 Description</h4>
-              <p className="text-muted-foreground">{summary.description}</p>
-            </div>
-            
-            <Separator />
-            
-            <div>
-              <h4 className="text-lg font-semibold mb-2">1.2 Table Grain</h4>
-              <p className="text-muted-foreground">{summary.tableGrain}</p>
-            </div>
-            
-            <Separator />
-            
-            <div>
-              <h4 className="text-lg font-semibold mb-2">1.3 Input Datasets</h4>
-              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                {summary.inputDatasets?.map((dataset, index) => (
-                  <li key={index}>{dataset}</li>
-                ))}
-              </ul>
-            </div>
-            
-            <Separator />
-            
-            <div>
-              <h4 className="text-lg font-semibold mb-4">1.4 Output Datasets</h4>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Table Name</TableHead>
-                    <TableHead>Description</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {summary.outputDatasets?.map((dataset, index) => (
-                    <TableRow key={index}>
-                      <TableCell className="font-medium">{dataset.tableName}</TableCell>
-                      <TableCell>{dataset.description}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* 2. Table Grain */}
+      <Card>
+        <CardHeader>
+          <CardTitle>2. Table Grain</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground">{tableGrain}</p>
+        </CardContent>
+      </Card>
 
-      {/* Process Flow Section */}
-      {processFlow && (
-        <Card>
-          <CardHeader>
-            <CardTitle>2. Process Flow & Steps Performed</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div>
-              <h4 className="text-lg font-semibold mb-2">2.1 High Level Process Flow</h4>
-              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                {processFlow.highLevelProcessFlow?.map((step, index) => (
-                  <li key={index}>{step}</li>
-                ))}
-              </ul>
-            </div>
-            
-            <Separator />
-            
-            <div>
-              <h4 className="text-lg font-semibold mb-4">2.2 Steps performed in the code</h4>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Step</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Input Tables/Data</TableHead>
-                      <TableHead>Join Conditions/Operations</TableHead>
-                      <TableHead>Business Definition</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {processFlow.stepsPerformed?.map((step, index) => (
-                      <TableRow key={index}>
-                        <TableCell className="font-medium">{step.step}</TableCell>
-                        <TableCell>{step.description}</TableCell>
-                        <TableCell>{step.inputTablesData}</TableCell>
-                        <TableCell>{step.joinConditionsOperations}</TableCell>
-                        <TableCell>{step.businessDefinition}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* 3. Data Sources */}
+      <Card>
+        <CardHeader>
+          <CardTitle>3. Data Sources</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+            {dataSources?.map((src, idx) => (
+              <li key={idx}>{src}</li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
 
-      {/* KPIs & Business Definitions */}
-      {kpisAndBusinessDefinitions && (
-        <Card>
-          <CardHeader>
-            <CardTitle>3. KPIs & Business Definitions</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>KPI/Field</TableHead>
-                  <TableHead>Business Definition</TableHead>
+      {/* 4. Databricks Tables */}
+      <Card>
+        <CardHeader>
+          <CardTitle>4. Databricks Tables (Output)</CardTitle>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Table Name</TableHead>
+                <TableHead>Description</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {databricksTables?.map((tbl, idx) => (
+                <TableRow key={idx}>
+                  <TableCell className="font-medium">{tbl.tableName}</TableCell>
+                  <TableCell>{tbl.description}</TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {kpisAndBusinessDefinitions.kpis?.map((kpi, index) => (
-                  <TableRow key={index}>
-                    <TableCell className="font-medium">{kpi.kpiField}</TableCell>
-                    <TableCell>{kpi.businessDefinition}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* 5. Table Metadata */}
+      <Card>
+        <CardHeader>
+          <CardTitle>5. Table Metadata</CardTitle>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Column Name</TableHead>
+                <TableHead>Data Type</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead>Sample Values</TableHead>
+                <TableHead>Source Table</TableHead>
+                <TableHead>Source Column</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tableMetadata?.map((meta, idx) => (
+                <TableRow key={idx}>
+                  <TableCell className="font-medium whitespace-nowrap">{meta.columnName}</TableCell>
+                  <TableCell>{meta.dataType}</TableCell>
+                  <TableCell>{meta.description}</TableCell>
+                  <TableCell>{meta.sampleValues}</TableCell>
+                  <TableCell>{meta.sourceTable}</TableCell>
+                  <TableCell>{meta.sourceColumn}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* 6. Integrated Rules */}
+      <Card>
+        <CardHeader>
+          <CardTitle>6. Integrated Rules</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+            {integratedRules?.map((rule, idx) => (
+              <li key={idx}>{rule}</li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
     </div>
   );
 };
