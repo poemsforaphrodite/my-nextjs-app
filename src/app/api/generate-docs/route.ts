@@ -80,8 +80,9 @@ JSON FORMAT (copy exactly – populate all placeholders):
 Additional Guidance:
 - Populate "dataSources" with ALL input tables or files referenced in the script.
 - "databricksTables" lists every table the script creates or overwrites in Databricks along with a concise business-focused description.
-- "tableMetadata" should have one entry PER COLUMN in the final output. Provide meaningful sample values if possible.
-- "integratedRules" should be a BULLETED LIST (array of strings) in logical order summarising the transformations/business logic. DO NOT return this as a table. write all don't leave any rules.
+- "tableMetadata" should have one entry PER COLUMN ACROSS ALL OUTPUT TABLES listed in "databricksTables". If there are multiple output tables, include the metadata for each column of each table (identify the table via the "sourceTable" field). Provide meaningful sample values if possible.
+- "integratedRules" should be a BULLETED LIST (array of strings) in logical order summarising the transformations/business logic. DO NOT return this as a table. Write ALL rules—do not omit any.
+- For the "sourceTable" field in "tableMetadata": if the script uses a temporary view or CTE, resolve it to the ORIGINAL underlying table (i.e., the real table or file from which the temp view is created). Do NOT use the temp view name here.
 - Do NOT omit any property. Use "N/A" if genuinely unknown – avoid leaving blanks.
 - The response MUST be valid JSON – no markdown, no comments, no leading/trailing text.
 `;
