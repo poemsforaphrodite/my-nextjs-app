@@ -81,7 +81,7 @@ Additional Guidance:
 - Populate "dataSources" with ALL input tables or files referenced in the script.
 - "databricksTables" lists every table the script creates or overwrites in Databricks along with a concise business-focused description.
 - "tableMetadata" should have one entry PER COLUMN in the final output. Provide meaningful sample values if possible.
-- "integratedRules" should be a BULLETED LIST (array of strings) in logical order summarising the transformations/business logic. DO NOT return this as a table.
+- "integratedRules" should be a BULLETED LIST (array of strings) in logical order summarising the transformations/business logic. DO NOT return this as a table. write all don't leave any rules.
 - Do NOT omit any property. Use "N/A" if genuinely unknown – avoid leaving blanks.
 - The response MUST be valid JSON – no markdown, no comments, no leading/trailing text.
 `;
