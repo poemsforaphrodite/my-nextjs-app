@@ -20,12 +20,15 @@ interface Documentation {
     description: string;
   }[];
   tableMetadata: {
-    columnName: string;
-    dataType: string;
-    description: string;
-    sampleValues: string;
-    sourceTable: string;
-    sourceColumn: string;
+    tableName: string;
+    columns: {
+      columnName: string;
+      dataType: string;
+      description: string;
+      sampleValues: string;
+      sourceTable: string;
+      sourceColumn: string;
+    }[];
   }[];
   integratedRules: string[];
 }
@@ -140,31 +143,38 @@ const DocumentationViewer = ({
         <CardHeader>
           <CardTitle>5. Table Metadata</CardTitle>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Column Name</TableHead>
-                <TableHead>Data Type</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Sample Values</TableHead>
-                <TableHead>Source Table</TableHead>
-                <TableHead>Source Column</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tableMetadata?.map((meta, idx) => (
-                <TableRow key={idx}>
-                  <TableCell className="font-medium whitespace-nowrap">{meta.columnName}</TableCell>
-                  <TableCell>{meta.dataType}</TableCell>
-                  <TableCell>{meta.description}</TableCell>
-                  <TableCell>{meta.sampleValues}</TableCell>
-                  <TableCell>{meta.sourceTable}</TableCell>
-                  <TableCell>{meta.sourceColumn}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <CardContent className="space-y-8">
+          {tableMetadata?.map((tbl, tblIdx) => (
+            <div key={tblIdx} className="space-y-4">
+              <h4 className="text-lg font-semibold">Table: {tbl.tableName}</h4>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Column Name</TableHead>
+                      <TableHead>Data Type</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Sample Values</TableHead>
+                      <TableHead>Source Table</TableHead>
+                      <TableHead>Source Column</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {tbl.columns.map((col, colIdx) => (
+                      <TableRow key={colIdx}>
+                        <TableCell className="font-medium whitespace-nowrap">{col.columnName}</TableCell>
+                        <TableCell>{col.dataType}</TableCell>
+                        <TableCell>{col.description}</TableCell>
+                        <TableCell>{col.sampleValues}</TableCell>
+                        <TableCell>{col.sourceTable}</TableCell>
+                        <TableCell>{col.sourceColumn}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          ))}
         </CardContent>
       </Card>
 
@@ -233,16 +243,31 @@ export default function Home() {
         body: JSON.stringify({
           pythonCode: fileContent,
           filename: file.name,
-          format: 'json'
+          format: 'json',
         }),
       });
 
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || 'Failed to generate documentation');
+        let errMsg = 'Failed to generate documentation';
+        try {
+          const errData = await response.json();
+          errMsg = errData.error || errMsg;
+        } catch {
+          // ignore
+        }
+        throw new Error(errMsg);
       }
 
-      const data = await response.json();
+      const rawText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        // Attempt to fix common truncation issues by trimming incomplete cases
+        const fixed = rawText.trim().replace(/,$/, '').replace(/\n/g, '');
+        data = JSON.parse(fixed);
+      }
+
       setDocumentation(data);
       setSuccessMessage(`Documentation generated successfully! You can view it below or download it as a DOCX file.`);
 
