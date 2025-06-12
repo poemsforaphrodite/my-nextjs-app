@@ -23,98 +23,67 @@ const openai = process.env.OPENAI_API_KEY
     })
   : null;
 
-interface Documentation {
-  datasetInfo: {
-    datasetName: string | null;
-    market: string | null;
-    primaryOwner: string | null;
-    refreshFrequency: string | null;
-    schemaTableName: string | null;
-  };
-  summary: {
+// -----------------------
+// New Documentation types
+// -----------------------
+export interface Documentation {
+  description: string;
+  tableGrain: string; // Columns that uniquely define one row in final table
+  dataSources: string[]; // List of source datasets / tables used in the script
+  databricksTables: {
+    tableName: string;
     description: string;
-    tableGrain: string;
-    inputDatasets: string[];
-    outputDatasets: {
-      tableName: string;
-      description:string;
-    }[];
-  };
-  processFlow: {
-    highLevelProcessFlow: string[];
-    stepsPerformed: {
-      step: number;
-      description: string;
-      inputTablesData: string;
-      joinConditionsOperations: string;
-      businessDefinition: string;
-    }[];
-  };
-  kpisAndBusinessDefinitions: {
-    kpis: {
-      kpiField: string;
-      businessDefinition: string;
-    }[];
-  };
+  }[]; // Output tables written in Databricks
+  tableMetadata: {
+    columnName: string;
+    dataType: string;
+    description: string;
+    sampleValues: string;
+    sourceTable: string;
+    sourceColumn: string;
+  }[]; // Column-level metadata for final table
+  integratedRules: string[]; // Bullet list describing the data transformation / business rules applied
 }
 
+// -----------------------
+// Prompt template
+// -----------------------
 const DOCUMENTATION_TEMPLATE = `
-Please analyze the following Python code and generate comprehensive documentation in a structured JSON format.
-This template has been updated to test Git deployment with the correct GitHub account.
-Grain means grain of the dataset at which data is present for example product_id, customer_id, etc.
-You must output a single JSON object. Do not include any other text before or after the JSON.
-The JSON object should follow this exact structure:
+You are provided with a Python script. Your task is to return extremely detailed documentation in a SINGLE JSON object (no additional text). The JSON MUST follow the exact structure below and every field must be present.
 
+Note on "tableGrain": specify WHICH columns guarantee that the final output table will contain exactly ONE row per combination of those columns.
+
+JSON FORMAT (copy exactly – populate all placeholders):
 {
-  "datasetInfo": {
-    "datasetName": "string | null",
-    "market": "string | null",
-    "primaryOwner": "string | null",
-    "refreshFrequency": "string | null",
-    "schemaTableName": "string | null"
-  },
-  "summary": {
-    "description": "string",
-    "tableGrain": "string",
-    "inputDatasets": ["string"],
-    "outputDatasets": [
-      {
-        "tableName": "string",
-        "description": "string"
-      }
-    ]
-  },
-  "processFlow": {
-    "highLevelProcessFlow": ["string"],
-    "stepsPerformed": [
-      {
-        "step": "number",
-        "description": "string",
-        "inputTablesData": "string",
-        "joinConditionsOperations": "string",
-        "businessDefinition": "string"
-      }
-    ]
-  },
-  "kpisAndBusinessDefinitions": {
-    "kpis": [
-      {
-        "kpiField": "string",
-        "businessDefinition": "string"
-      }
-    ]
-  }
+  "description": "string",
+  "tableGrain": "string",
+  "dataSources": ["string"],
+  "databricksTables": [
+    {
+      "tableName": "string",
+      "description": "string"
+    }
+  ],
+  "tableMetadata": [
+    {
+      "columnName": "string",
+      "dataType": "string",
+      "description": "string",
+      "sampleValues": "string",
+      "sourceTable": "string",
+      "sourceColumn": "string"
+    }
+  ],
+  "integratedRules": ["string"]
 }
 
-- For "datasetName", "market", "primaryOwner", "refreshFrequency", "schemaTableName", extract them from the code or infer them. If not available, use placeholders like 'N/A' or an inferred value.
-- "inputDatasets" should be a list of strings.
-- "outputDatasets" should be an array of objects.
-- "highLevelProcessFlow" should be an array of strings describing the high-level steps.
-- "stepsPerformed" should be an array of objects, with "step" as a number.
-- "kpis" should be an array of objects.
-- For the "businessDefinition" in "stepsPerformed" and "kpisAndBusinessDefinitions", do not just state that business logic is applied. You must describe the business logic in full detail. For example, instead of writing "Applies business logic to separate attempted calls", write "Filters for records where the 'call_status' is 'attempted' to separate them from successful calls, then persists basic call details including the 'pt_cdl_uuid'."
-
-Please analyze the code thoroughly and provide specific, accurate, and highly detailed information for all fields. All descriptions must be as comprehensive as possible. Write all KPIs in the business context. Don't leave any KPI fields blank.
+Additional Guidance:
+- Populate "dataSources" with ALL input tables or files referenced in the script.
+- "databricksTables" lists every table the script creates or overwrites in Databricks along with a concise business-focused description.
+- "tableMetadata" should have one entry PER COLUMN in the final output. Provide meaningful sample values if possible.
+- "integratedRules" should be a BULLETED LIST (array of strings) in logical order summarising the transformations/business logic. DO NOT return this as a table.
+- Do NOT omit any property. Use "N/A" if genuinely unknown – avoid leaving blanks.
+- The response MUST be valid JSON – no markdown, no comments, no leading/trailing text.
 `;
 
 // Helper functions for creating document elements
@@ -167,122 +136,129 @@ function createBullet(text: string): Paragraph {
     });
 }
 
-
 function createDocxFromDocumentation(documentation: Documentation, filename: string) {
-    const children: (Paragraph | Table)[] = [];
+  const children: (Paragraph | Table)[] = [];
 
-    // Document title and header
-    children.push(new Paragraph({
-        children: [
-            new TextRun({ text: `Python Documentation Report`, bold: true, size: 36, color: "2E86AB" })
-        ],
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 400 }
-    }));
-    children.push(new Paragraph({
-        children: [
-            new TextRun({ text: `Generated for: ${filename}`, size: 24, color: "666666", italics: true })
-        ],
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 600 }
-    }));
-    children.push(new Paragraph({
-        children: [new TextRun({ text: "", size: 1 })],
-        border: { bottom: { color: "2E86AB", space: 1, style: BorderStyle.SINGLE, size: 6 }},
-        spacing: { after: 400 }
-    }));
+  // Document title and header
+  children.push(
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: `Python Documentation Report`,
+          bold: true,
+          size: 36,
+          color: "2E86AB",
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 400 },
+    })
+  );
 
-    // Dataset Info
-    if (documentation.datasetInfo) {
-        const { datasetName, market, primaryOwner, refreshFrequency } = documentation.datasetInfo;
-        const infoData = [
-            ['Dataset Name', datasetName || '-'],
-            ['Market', market || '-'],
-            ['Primary Owner', primaryOwner || 'ZS'],
-            ['Refresh Frequency', refreshFrequency || 'N/A']
-        ];
-        children.push(createInfoTable(infoData));
-    }
+  children.push(
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: `Generated for: ${filename}`,
+          size: 24,
+          color: "666666",
+          italics: true,
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 600 },
+    })
+  );
 
-    // Summary Section
-    if (documentation.summary) {
-        children.push(createSectionHeader('1. Summary'));
-        const { description, tableGrain, inputDatasets, outputDatasets } = documentation.summary;
-        children.push(createSubHeader('1.1 Description'));
-        children.push(createParagraph(description));
+  children.push(
+    new Paragraph({
+      children: [new TextRun({ text: "", size: 1 })],
+      border: {
+        bottom: { color: "2E86AB", space: 1, style: BorderStyle.SINGLE, size: 6 },
+      },
+      spacing: { after: 400 },
+    })
+  );
 
-        children.push(createSubHeader('1.2 Table Grain'));
-        children.push(createParagraph(tableGrain));
+  // 1. Description
+  children.push(createSectionHeader("1. Description"));
+  children.push(createParagraph(documentation.description));
 
-        children.push(createSubHeader('1.3 Input Datasets'));
-        if (inputDatasets && inputDatasets.length > 0) {
-            inputDatasets.forEach((ds: string) => children.push(createBullet(ds)));
-        } else {
-            children.push(createParagraph("No input datasets specified."));
-        }
-        
-        children.push(createSubHeader('1.4 Output Datasets'));
-        if (outputDatasets && outputDatasets.length > 0) {
-            const outputTableRows = [
-                ['Table Name', 'Table Description'],
-                ...outputDatasets.map((d) => [d.tableName, d.description])
-            ];
-            children.push(createStyledTable(outputTableRows));
-        } else {
-            children.push(createParagraph("No output datasets specified."));
-        }
-    }
+  // 2. Table Grain
+  children.push(createSectionHeader("2. Table Grain"));
+  children.push(createParagraph(documentation.tableGrain));
 
-    // Process Flow
-    if (documentation.processFlow) {
-        children.push(createSectionHeader('2. Process Flow & Steps Performed'));
-        const { highLevelProcessFlow, stepsPerformed } = documentation.processFlow;
+  // 3. Data Sources
+  children.push(createSectionHeader("3. Data Sources"));
+  if (documentation.dataSources && documentation.dataSources.length > 0) {
+    documentation.dataSources.forEach((source: string) => children.push(createBullet(source)));
+  } else {
+    children.push(createParagraph("No data sources identified."));
+  }
 
-        children.push(createSubHeader('2.1 High Level Process Flow'));
-        if (highLevelProcessFlow && highLevelProcessFlow.length > 0) {
-            highLevelProcessFlow.forEach((step: string) => children.push(createBullet(step)));
-        } else {
-            children.push(createParagraph("No high-level process flow described."));
-        }
+  // 4. Databricks Table (Output Tables)
+  children.push(createSectionHeader("4. Databricks Tables (Output)"));
+  if (documentation.databricksTables && documentation.databricksTables.length > 0) {
+    const dbTableRows: string[][] = [
+      ["Table Name", "Description"],
+      ...documentation.databricksTables.map((tbl) => [tbl.tableName, tbl.description]),
+    ];
+    children.push(createStyledTable(dbTableRows));
+  } else {
+    children.push(createParagraph("No Databricks tables specified."));
+  }
 
-        children.push(createSubHeader('2.2 Steps performed in the code'));
-        if (stepsPerformed && stepsPerformed.length > 0) {
-            const stepsTableRows = [
-                ['Step', 'Description', 'Input Tables/Data', 'Join Conditions/Operations', 'Business Definition'],
-                ...stepsPerformed.map((s) => [s.step.toString(), s.description, s.inputTablesData, s.joinConditionsOperations, s.businessDefinition])
-            ];
-            children.push(createStyledTable(stepsTableRows));
-        } else {
-            children.push(createParagraph("No detailed steps provided."));
-        }
-    }
+  // 5. Table Metadata
+  children.push(createSectionHeader("5. Table Metadata"));
+  if (documentation.tableMetadata && documentation.tableMetadata.length > 0) {
+    const metaRows: string[][] = [
+      [
+        "Column Name",
+        "Datatype",
+        "Description",
+        "Sample Values",
+        "Source Table",
+        "Source Column",
+      ],
+      ...documentation.tableMetadata.map((m: Documentation["tableMetadata"][0]) => [
+        m.columnName,
+        m.dataType,
+        m.description,
+        m.sampleValues,
+        m.sourceTable,
+        m.sourceColumn,
+      ]),
+    ];
+    children.push(createStyledTable(metaRows));
+  } else {
+    children.push(createParagraph("No column metadata provided."));
+  }
 
-    // KPIs & Business Definitions
-    if (documentation.kpisAndBusinessDefinitions) {
-        children.push(createSectionHeader('3. KPIs & Business Definitions'));
-        const { kpis } = documentation.kpisAndBusinessDefinitions;
-        if (kpis && kpis.length > 0) {
-            const kpiTableRows = [
-                ['KPI/Field', 'Business Definition'],
-                ...kpis.map((k) => [k.kpiField, k.businessDefinition])
-            ];
-            children.push(createStyledTable(kpiTableRows));
-        } else {
-            children.push(createParagraph("No KPIs or business definitions provided."));
-        }
-    }
+  // 6. Integrated Rules
+  children.push(createSectionHeader("6. Integrated Rules"));
+  if (documentation.integratedRules && documentation.integratedRules.length > 0) {
+    documentation.integratedRules.forEach((rule: string) => children.push(createBullet(rule)));
+  } else {
+    children.push(createParagraph("No rules described."));
+  }
 
-
-    return new Document({
-        sections: [{
-            properties: {
-                page: {
-                    margin: { top: convertInchesToTwip(1), right: convertInchesToTwip(1), bottom: convertInchesToTwip(1), left: convertInchesToTwip(1) }
-                }
+  return new Document({
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: {
+              top: convertInchesToTwip(1),
+              right: convertInchesToTwip(1),
+              bottom: convertInchesToTwip(1),
+              left: convertInchesToTwip(1),
             },
-            children: children
-        }]
-    });
+          },
+        },
+        children,
+      },
+    ],
+  });
 }
 
 function createInfoTable(data: string[][]) {
@@ -410,7 +386,7 @@ export async function POST(request: NextRequest) {
     }
 
     const completion = await openai.chat.completions.create({
-      model: 'o4-mini-2025-04-16',
+      model: 'o3-2025-04-16',
       response_format: { type: "json_object" },
       messages: [
         {
