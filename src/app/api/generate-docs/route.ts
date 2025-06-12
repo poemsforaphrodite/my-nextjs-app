@@ -273,12 +273,12 @@ function _createInfoTable(data: string[][]) {
             children: [new TextRun({ 
               text: header || '', 
               bold: true, 
-              color: "FFFFFF",
+              color: "000000",
               size: 20
             })],
             alignment: AlignmentType.CENTER
           })],
-          shading: { fill: "4CAF50", type: ShadingType.SOLID },
+          shading: { fill: "D9EAD3", type: ShadingType.SOLID },
           margins: { top: 200, bottom: 200, left: 200, right: 200 }
         }))
       }),
@@ -288,11 +288,11 @@ function _createInfoTable(data: string[][]) {
             children: [new TextRun({ 
               text: cell || '',
               size: 20,
-              color: "212121"
+              color: "FFFFFF"
             })],
             alignment: AlignmentType.CENTER
           })],
-          shading: { fill: "F5F5F5", type: ShadingType.SOLID },
+          shading: { fill: "FFFFFF", type: ShadingType.SOLID },
           margins: { top: 200, bottom: 200, left: 200, right: 200 }
         }))
       })
@@ -322,12 +322,12 @@ function createStyledTable(tableRows: string[][]) {
           children: [new TextRun({ 
             text: (cell || '').trim(), 
             bold: true, 
-            color: "FFFFFF",
+            color: "000000",
             size: 20
           })],
           alignment: AlignmentType.CENTER
         })],
-        shading: { fill: "4CAF50", type: ShadingType.SOLID },
+        shading: { fill: "D9EAD3", type: ShadingType.SOLID },
         margins: { top: 200, bottom: 200, left: 200, right: 200 },
         width: { size: 100 / headerRow.length, type: WidthType.PERCENTAGE }
       }))
@@ -339,12 +339,12 @@ function createStyledTable(tableRows: string[][]) {
           children: [new TextRun({ 
             text: (cell || '').trim(),
             size: 20,
-            color: "212121"
+            color: "FFFFFF"
           })],
           alignment: AlignmentType.LEFT
         })],
         shading: { 
-          fill: index % 2 === 0 ? "F8F9FA" : "FFFFFF", 
+          fill: index % 2 === 0 ? "FFFFFF" : "FFFFFF", 
           type: ShadingType.SOLID 
         },
         margins: { top: 150, bottom: 150, left: 200, right: 200 },
@@ -356,10 +356,10 @@ function createStyledTable(tableRows: string[][]) {
   return new Table({
     rows: docRows,
     borders: {
-      top: { style: BorderStyle.SINGLE, size: 6, color: "4CAF50" },
-      bottom: { style: BorderStyle.SINGLE, size: 6, color: "4CAF50" },
-      left: { style: BorderStyle.SINGLE, size: 4, color: "4CAF50" },
-      right: { style: BorderStyle.SINGLE, size: 4, color: "4CAF50" },
+      top: { style: BorderStyle.SINGLE, size: 6, color: "3C8D0F" },
+      bottom: { style: BorderStyle.SINGLE, size: 6, color: "3C8D0F" },
+      left: { style: BorderStyle.SINGLE, size: 4, color: "3C8D0F" },
+      right: { style: BorderStyle.SINGLE, size: 4, color: "3C8D0F" },
       insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: "E0E0E0" },
       insideVertical: { style: BorderStyle.SINGLE, size: 2, color: "E0E0E0" }
     },
