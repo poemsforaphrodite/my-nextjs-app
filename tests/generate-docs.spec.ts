@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { createDocxFromDocumentation } from '@/lib/docx-util';
 import { Packer } from 'docx';
 
@@ -30,10 +30,34 @@ const sampleDoc = {
   integratedRules: ['rule 1']
 };
 
-describe('Docx generator', () => {
+describe('Documentation Generator', () => {
+  beforeAll(() => {
+    // Check for required environment variables
+    if (!process.env.OPENAI_API_KEY) {
+      console.warn('OPENAI_API_KEY not set - using test value');
+      process.env.OPENAI_API_KEY = 'sk-test-key-for-local-testing';
+    }
+  });
+
   it('should create a non-empty docx buffer', async () => {
     const doc = createDocxFromDocumentation(sampleDoc as any, 'sample.py');
     const buf = await Packer.toBuffer(doc);
     expect(buf.byteLength).toBeGreaterThan(1000);
+    console.log(`Generated DOCX buffer size: ${buf.byteLength} bytes`);
+  });
+
+  it('should handle empty documentation gracefully', async () => {
+    const emptyDoc = {
+      description: '',
+      tableGrain: '',
+      dataSources: [],
+      databricksTables: [],
+      tableMetadata: [],
+      integratedRules: []
+    };
+    
+    const doc = createDocxFromDocumentation(emptyDoc as any, 'empty.py');
+    const buf = await Packer.toBuffer(doc);
+    expect(buf.byteLength).toBeGreaterThan(500);
   });
 }); 

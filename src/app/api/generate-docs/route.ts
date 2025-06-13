@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
 import { 
   Document, 
   Packer, 
@@ -15,16 +14,9 @@ import {
   ShadingType,
   convertInchesToTwip
 } from 'docx';
-import { Client as QStashClient } from '@upstash/qstash';
-import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { createDocxFromDocumentation } from '@/lib/docx-util';
 
-// Initialize OpenAI client conditionally to handle build-time issues
-const openai = process.env.OPENAI_API_KEY 
-  ? new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    })
-  : null;
+// OpenAI calls will now be made client-side to avoid serverless timeouts
 
 // -----------------------
 // New Documentation types
@@ -51,55 +43,7 @@ export interface Documentation {
   integratedRules: string[]; // Bullet list describing the data transformation / business rules applied
 }
 
-// -----------------------
-// Prompt template
-// -----------------------
-const DOCUMENTATION_TEMPLATE = `
-You are provided with a Python script. Your task is to return extremely detailed documentation in a SINGLE JSON object (no additional text). The JSON MUST follow the exact structure below and every field must be present.
-
-Note on "tableGrain": specify WHICH columns guarantee that the final output table will contain exactly ONE row per combination of those columns.
-
-JSON FORMAT (copy exactly – populate all placeholders):
-{
-  "description": "string",
-  "tableGrain": "string",
-  "dataSources": ["string"],
-  "databricksTables": [
-    {
-      "tableName": "string",
-      "description": "string"
-    }
-  ],
-  "tableMetadata": [
-    {
-      "tableName": "string",
-      "columns": [
-        {
-          "columnName": "string",
-          "dataType": "string",
-          "description": "string",
-          "sampleValues": "string",
-          "sourceTable": "string",
-          "sourceColumn": "string"
-        }
-      ]
-    }
-  ],
-  "integratedRules": ["string"]
-}
-
-Additional Guidance:
-- Populate "dataSources" with ALL input tables or files referenced in the script.
-- "databricksTables" lists every table the script creates or overwrites in Databricks along with a concise business-focused description.
-- "tableMetadata" must be an array, one object per output table listed in "databricksTables". Each object has:
-    "tableName": the output table name, and
-    "columns": an array with one entry per column (fields: columnName, dataType, description, sampleValues, sourceTable, sourceColumn).
-  This groups metadata table-wise rather than mixing all columns together.
-- "integratedRules" should be a BULLETED LIST (array of strings) in logical order summarising the transformations/business logic. DO NOT return this as a table. Write ALL rules—do not omit any.
-- For the "sourceTable" field in "tableMetadata": if the script uses a temporary view or CTE, resolve it to the ORIGINAL underlying table (i.e., the real table or file from which the temp view is created). Do NOT use the temp view name here.
-- Do NOT omit any property. Use "N/A" if genuinely unknown – avoid leaving blanks.
-- The response MUST be valid JSON – no markdown, no comments, no leading/trailing text.
-`;
+// Documentation template moved to openai-proxy route
 
 // Helper functions for creating document elements
 function createSectionHeader(text: string): Paragraph {
@@ -387,161 +331,33 @@ function createStyledTable(tableRows: string[][]) {
 }
 
 export async function POST(request: NextRequest) {
-  // If the request comes from QStash it will include the Upstash-Signature header.
-  if (request.headers.has('Upstash-Signature')) {
-    // Run the heavy job after verifying the signature
-    return verifySignatureAppRouter(processJob)(request as unknown as Request);
-  }
-
-  // ------------ ENQUEUE PATH --------------
-  const clientToken = process.env.QSTASH_TOKEN;
-  if (!clientToken) {
-    return NextResponse.json({ error: 'Missing QStASH_TOKEN env var' }, { status: 500 });
-  }
-
   const body = await request.json();
+  const { documentation, filename, format } = body;
 
   // Basic payload validation
-  if (!body?.pythonCode) {
-    return NextResponse.json({ error: 'pythonCode missing' }, { status: 400 });
+  if (!documentation) {
+    return NextResponse.json({ error: 'documentation missing' }, { status: 400 });
   }
 
-  const baseUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : request.nextUrl.origin;
-
-  try {
-    const client = new QStashClient({ token: clientToken });
-
-    const result = await client.publishJSON({
-      url: `${baseUrl}/api/generate-docs`,
-      body,
-    });
-
-    return NextResponse.json({ queued: true, messageId: result.messageId }, { status: 202 });
-  } catch (err) {
-    console.error('Failed to enqueue QStash job', err);
-    return NextResponse.json({ error: 'Failed to enqueue job' }, { status: 500 });
-  }
-}
-
-// ---------------- private helpers -----------------
-
-async function processJob(req: Request) {
-  try {
-    const { pythonCode, filename, format } = await req.json();
-
-    if (!pythonCode) {
-      return NextResponse.json({ error: 'Python code is required' }, { status: 400 });
-    }
-
-    if (!process.env.OPENAI_API_KEY || !openai) {
-      return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 });
-    }
-
-    // ---------------------------------------------
-    // STREAMING PATH
-    // ---------------------------------------------
-    if (format !== 'docx') {
-      const encoder = new TextEncoder();
-
-      const stream = new ReadableStream<Uint8Array>({
-        async start(controller) {
-          try {
-            const completion = await openai!.chat.completions.create({
-              model: 'o3-2025-04-16',
-              response_format: { type: 'json_object' },
-              stream: true,
-              messages: [
-                {
-                  role: 'system',
-                  content:
-                    'You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.',
-                },
-                {
-                  role: 'user',
-                  content: `${DOCUMENTATION_TEMPLATE}
-
-Python file: ${filename}
-
-Python Code:\n\n${pythonCode}\n\nPlease generate the documentation following the exact template format provided above.`,
-                },
-              ],
-            });
-
-            interface StreamChunk {
-              choices: { delta?: { content?: string } }[];
-            }
-
-            for await (const chunk of completion as AsyncIterable<StreamChunk>) {
-              const delta = chunk.choices?.[0]?.delta?.content ?? '';
-              if (delta) controller.enqueue(encoder.encode(delta));
-            }
-
-            controller.close();
-          } catch (error) {
-            console.error('Streaming error', error);
-            controller.error(error);
-          }
-        },
-      });
-
-      return new NextResponse(stream, {
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-        },
-      });
-    }
-
-    // ---------------------------------------------
-    // DOCX PATH (non-streaming)
-    // ---------------------------------------------
-
-    const completion = await openai!.chat.completions.create({
-      model: 'o3-2025-04-16',
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.',
-        },
-        {
-          role: 'user',
-          content: `${DOCUMENTATION_TEMPLATE}
-
-Python file: ${filename}
-
-Python Code:\n\n${pythonCode}\n\nPlease generate the documentation following the exact template format provided above.`,
-        },
-      ],
-    });
-
-    const documentationString = completion.choices[0]?.message?.content;
-    if (!documentationString) {
-      return NextResponse.json({ error: 'Failed to generate documentation' }, { status: 500 });
-    }
-
+  // For DOCX generation only (JSON documentation is now passed from client)
+  if (format === 'docx') {
     try {
-      const documentationJson = JSON.parse(documentationString);
-      const doc = createDocxFromDocumentation(documentationJson, filename);
+      const doc = createDocxFromDocumentation(documentation, filename || 'documentation');
       const buffer = await Packer.toBuffer(doc);
 
       return new NextResponse(buffer, {
         headers: {
-          'Content-Type':
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'Content-Disposition': `attachment; filename="${filename.replace('.py', '')}_documentation.docx"`,
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'Content-Disposition': `attachment; filename="${(filename || 'documentation').replace('.py', '')}_documentation.docx"`,
         },
       });
     } catch (err) {
-      console.error('Failed to parse JSON for DOCX', err);
-      return NextResponse.json({ error: 'Failed to parse documentation' }, { status: 500 });
+      console.error('Failed to generate DOCX', err);
+      return NextResponse.json({ error: 'Failed to generate documentation' }, { status: 500 });
     }
-  } catch (error) {
-    console.error('Error in worker', error);
-    return NextResponse.json({ error: 'Failed to generate documentation' }, { status: 500 });
   }
-} 
+
+  return NextResponse.json({ error: 'Invalid format' }, { status: 400 });
+}
+
+// All OpenAI processing now happens client-side to avoid serverless timeouts 
