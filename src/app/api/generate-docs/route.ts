@@ -15,6 +15,9 @@ import {
   ShadingType,
   convertInchesToTwip
 } from 'docx';
+import { Client as QStashClient } from '@upstash/qstash';
+import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
+import { createDocxFromDocumentation } from '@/lib/docx-util';
 
 // Initialize OpenAI client conditionally to handle build-time issues
 const openai = process.env.OPENAI_API_KEY 
@@ -148,7 +151,7 @@ function createBullet(text: string): Paragraph {
     });
 }
 
-function createDocxFromDocumentation(documentation: Documentation, filename: string) {
+function _legacyDocxFactory(documentation: Documentation, filename: string) {
   const children: (Paragraph | Table)[] = [];
 
   // Document title and header
@@ -384,8 +387,49 @@ function createStyledTable(tableRows: string[][]) {
 }
 
 export async function POST(request: NextRequest) {
+  // If the request comes from QStash it will include the Upstash-Signature header.
+  if (request.headers.has('Upstash-Signature')) {
+    // Run the heavy job after verifying the signature
+    return verifySignatureAppRouter(processJob)(request as unknown as Request);
+  }
+
+  // ------------ ENQUEUE PATH --------------
+  const clientToken = process.env.QSTASH_TOKEN;
+  if (!clientToken) {
+    return NextResponse.json({ error: 'Missing QStASH_TOKEN env var' }, { status: 500 });
+  }
+
+  const body = await request.json();
+
+  // Basic payload validation
+  if (!body?.pythonCode) {
+    return NextResponse.json({ error: 'pythonCode missing' }, { status: 400 });
+  }
+
+  const baseUrl = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : request.nextUrl.origin;
+
   try {
-    const { pythonCode, filename, format } = await request.json();
+    const client = new QStashClient({ token: clientToken });
+
+    const result = await client.publishJSON({
+      url: `${baseUrl}/api/generate-docs`,
+      body,
+    });
+
+    return NextResponse.json({ queued: true, messageId: result.messageId }, { status: 202 });
+  } catch (err) {
+    console.error('Failed to enqueue QStash job', err);
+    return NextResponse.json({ error: 'Failed to enqueue job' }, { status: 500 });
+  }
+}
+
+// ---------------- private helpers -----------------
+
+async function processJob(req: Request) {
+  try {
+    const { pythonCode, filename, format } = await req.json();
 
     if (!pythonCode) {
       return NextResponse.json({ error: 'Python code is required' }, { status: 400 });
@@ -396,7 +440,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ---------------------------------------------
-    // STREAMING PATH (JSON response / default case)
+    // STREAMING PATH
     // ---------------------------------------------
     if (format !== 'docx') {
       const encoder = new TextEncoder();
@@ -404,7 +448,7 @@ export async function POST(request: NextRequest) {
       const stream = new ReadableStream<Uint8Array>({
         async start(controller) {
           try {
-            const completion = await openai.chat.completions.create({
+            const completion = await openai!.chat.completions.create({
               model: 'o3-2025-04-16',
               response_format: { type: 'json_object' },
               stream: true,
@@ -420,12 +464,7 @@ export async function POST(request: NextRequest) {
 
 Python file: ${filename}
 
-Python Code:
-\`\`\`python
-${pythonCode}
-\`\`\`
-
-Please generate the documentation following the exact template format provided above.`,
+Python Code:\n\n${pythonCode}\n\nPlease generate the documentation following the exact template format provided above.`,
                 },
               ],
             });
@@ -436,15 +475,13 @@ Please generate the documentation following the exact template format provided a
 
             for await (const chunk of completion as AsyncIterable<StreamChunk>) {
               const delta = chunk.choices?.[0]?.delta?.content ?? '';
-              if (delta) {
-                controller.enqueue(encoder.encode(delta));
-              }
+              if (delta) controller.enqueue(encoder.encode(delta));
             }
 
             controller.close();
-          } catch (err) {
-            console.error('Stream error:', err);
-            controller.error(err);
+          } catch (error) {
+            console.error('Streaming error', error);
+            controller.error(error);
           }
         },
       });
@@ -462,7 +499,7 @@ Please generate the documentation following the exact template format provided a
     // DOCX PATH (non-streaming)
     // ---------------------------------------------
 
-    const completion = await openai.chat.completions.create({
+    const completion = await openai!.chat.completions.create({
       model: 'o3-2025-04-16',
       response_format: { type: 'json_object' },
       messages: [
@@ -477,25 +514,18 @@ Please generate the documentation following the exact template format provided a
 
 Python file: ${filename}
 
-Python Code:
-\`\`\`python
-${pythonCode}
-\`\`\`
-
-Please generate the documentation following the exact template format provided above.`,
+Python Code:\n\n${pythonCode}\n\nPlease generate the documentation following the exact template format provided above.`,
         },
       ],
     });
 
     const documentationString = completion.choices[0]?.message?.content;
-
     if (!documentationString) {
       return NextResponse.json({ error: 'Failed to generate documentation' }, { status: 500 });
     }
 
     try {
       const documentationJson = JSON.parse(documentationString);
-
       const doc = createDocxFromDocumentation(documentationJson, filename);
       const buffer = await Packer.toBuffer(doc);
 
@@ -507,11 +537,11 @@ Please generate the documentation following the exact template format provided a
         },
       });
     } catch (err) {
-      console.error('Failed to parse JSON for DOCX:', err);
+      console.error('Failed to parse JSON for DOCX', err);
       return NextResponse.json({ error: 'Failed to parse documentation' }, { status: 500 });
     }
   } catch (error) {
-    console.error('Error generating documentation:', error);
+    console.error('Error in worker', error);
     return NextResponse.json({ error: 'Failed to generate documentation' }, { status: 500 });
   }
 } 

@@ -171,37 +171,111 @@ st.title("Python Documentation Generator (Streamlit)")
 
 uploaded_file = st.file_uploader("Upload a Python (.py) file", type=["py"])
 
+# Optional: choose whether to stream the response from OpenAI
+stream_response = st.checkbox(
+    "Stream response from OpenAI (beta – requires a supported plan)",
+    value=False,
+)
+
 if uploaded_file:
+    # Show immediate feedback that file was uploaded
+    st.success(f"✅ File uploaded: {uploaded_file.name}")
+    
+    # Read and display file info
     code = uploaded_file.read().decode("utf-8")
+    lines_count = len(code.split('\n'))
+    st.info(f"📄 File contains {lines_count} lines of code")
+    
+    # Show a preview of the code
+    with st.expander("Preview uploaded code (first 20 lines)"):
+        preview_lines = code.split('\n')[:20]
+        st.code('\n'.join(preview_lines), language='python')
 
-    if st.button("Generate Documentation"):
+    if st.button("Generate Documentation", type="primary"):
+        # Initialize session state for generated docs if not exists
+        if 'generated_docs' not in st.session_state:
+            st.session_state.generated_docs = None
+            st.session_state.generated_filename = None
+        
         with st.spinner("Generating documentation…"):
-            chunks = generate_documentation(code, uploaded_file.name, stream=True)
-            doc_string = ""
             try:
-                for chunk in chunks:
-                    delta = chunk.choices[0].delta.content if chunk.choices else ""
-                    if delta:
-                        doc_string += delta
-                        st.text_area("Partial JSON (streaming)", doc_string, height=300)
-            except Exception as e:
-                st.error(f"Streaming error: {e}")
-                st.stop()
+                if stream_response:
+                    # --- Streaming path ---
+                    chunks = generate_documentation(code, uploaded_file.name, stream=True)
+                    doc_string = ""
 
-            try:
+                    # Create a placeholder for streaming display
+                    streaming_placeholder = st.empty()
+
+                    for chunk in chunks:
+                        delta = chunk.choices[0].delta.content if chunk.choices else ""
+                        if delta:
+                            doc_string += delta
+                            # Update the placeholder with current progress
+                            with streaming_placeholder.container():
+                                st.text_area(
+                                    "Generating... (live preview)",
+                                    doc_string,
+                                    height=200,
+                                    key=f"streaming_{len(doc_string)}",
+                                )
+
+                    # Clear the streaming placeholder
+                    streaming_placeholder.empty()
+                else:
+                    # --- Non-streaming path ---
+                    response = generate_documentation(code, uploaded_file.name, stream=False)
+                    doc_string = response.choices[0].message.content
+
+                # Parse the final JSON (applies to both paths)
                 doc_json = json.loads(doc_string)
-            except json.JSONDecodeError:
-                st.error("Failed to parse JSON from model.")
-                st.stop()
+                
+                # Store in session state
+                st.session_state.generated_docs = doc_json
+                st.session_state.generated_filename = uploaded_file.name
+                
+                st.success("✅ Documentation generated successfully!")
+                
+            except json.JSONDecodeError as e:
+                st.error(f"❌ Failed to parse JSON from model: {e}")
+                st.error("Raw response:")
+                st.text_area("Raw model response", doc_string, height=200)
+            except Exception as e:
+                st.error(f"❌ Error generating documentation: {e}")
 
-            st.success("Documentation generated!")
-            st.json(doc_json, expanded=False)
-
-            if st.button("Download DOCX"):
-                docx_buffer = build_docx(doc_json, uploaded_file.name)
+# Display generated documentation if it exists in session state
+if hasattr(st.session_state, 'generated_docs') and st.session_state.generated_docs:
+    st.divider()
+    st.subheader("📋 Generated Documentation")
+    
+    # Display the JSON in an expandable section
+    with st.expander("View JSON Documentation", expanded=True):
+        st.json(st.session_state.generated_docs)
+    
+    # Download button (always visible if docs are generated)
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("📥 Download DOCX", type="secondary"):
+            try:
+                docx_buffer = build_docx(st.session_state.generated_docs, st.session_state.generated_filename)
                 st.download_button(
-                    label="Download DOCX",
+                    label="💾 Click to Download DOCX",
                     data=docx_buffer,
-                    file_name=uploaded_file.name.replace(".py", "_documentation.docx"),
+                    file_name=st.session_state.generated_filename.replace(".py", "_documentation.docx"),
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                ) 
+                )
+            except Exception as e:
+                st.error(f"❌ Error creating DOCX: {e}")
+    
+    # Clear button to reset
+    with col2:
+        if st.button("🗑️ Clear Generated Documentation"):
+            st.session_state.generated_docs = None
+            st.session_state.generated_filename = None
+            st.rerun()
+
+else:
+    if uploaded_file:
+        st.info("👆 Click 'Generate Documentation' to process your file")
+    else:
+        st.info("👆 Upload a Python file to get started") 
