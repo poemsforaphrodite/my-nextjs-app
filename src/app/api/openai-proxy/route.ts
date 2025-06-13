@@ -53,6 +53,7 @@ Additional Guidance:
 - For the "sourceTable" field in "tableMetadata": if the script uses a temporary view or CTE, resolve it to the ORIGINAL underlying table (i.e., the real table or file from which the temp view is created). Do NOT use the temp view name here.
 - Do NOT omit any property. Use "N/A" if genuinely unknown – avoid leaving blanks.
 - The response MUST be valid JSON – no markdown, no comments, no leading/trailing text.
+- WRITE ALL INTEGRATION RULES IN THE "integratedRules" FIELD. WRITE ALL STEPS DONT LEAVE ANYTHING OUT.
 `;
 
 export async function POST(request: NextRequest) {
