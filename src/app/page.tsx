@@ -234,8 +234,8 @@ export default function Home() {
     try {
       const fileContent = await file.text();
       
-      // Generate JSON documentation for UI display
-      const response = await fetch('/api/generate-docs', {
+      // Step 1: Generate documentation using OpenAI proxy (streaming)
+      const response = await fetch('/api/openai-proxy', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -243,7 +243,6 @@ export default function Home() {
         body: JSON.stringify({
           pythonCode: fileContent,
           filename: file.name,
-          format: 'json',
         }),
       });
 
@@ -258,17 +257,49 @@ export default function Home() {
         throw new Error(errMsg);
       }
 
-      const rawText = await response.text();
-      let data;
-      try {
-        data = JSON.parse(rawText);
-      } catch {
-        // Attempt to fix common truncation issues by trimming incomplete cases
-        const fixed = rawText.trim().replace(/,$/, '').replace(/\n/g, '');
-        data = JSON.parse(fixed);
+      // Handle Server-Sent Events stream
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let documentationResult = null;
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                
+                if (data.error) {
+                  throw new Error(data.error);
+                }
+                
+                if (data.complete && data.documentation) {
+                  documentationResult = data.documentation;
+                }
+                
+                // Handle partial chunks for progress indication
+                // You could add progress updates here if needed
+                
+              } catch (parseError) {
+                // Skip malformed JSON chunks
+                console.warn('Failed to parse SSE data:', parseError);
+              }
+            }
+          }
+        }
       }
 
-      setDocumentation(data);
+      if (!documentationResult) {
+        throw new Error('No documentation received from OpenAI');
+      }
+
+      setDocumentation(documentationResult);
       setSuccessMessage(`Documentation generated successfully! You can view it below or download it as a DOCX file.`);
 
     } catch (err) {
@@ -279,22 +310,20 @@ export default function Home() {
   };
 
   const downloadDocumentation = async () => {
-    if (!file) return;
+    if (!file || !documentation) return;
 
     setIsDownloading(true);
     setError('');
     
     try {
-      const fileContent = await file.text();
-      
-      // Generate DOCX file for download
+      // Step 2: Generate DOCX from existing documentation
       const response = await fetch('/api/generate-docs', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          pythonCode: fileContent,
+          documentation: documentation,
           filename: file.name,
           format: 'docx'
         }),
