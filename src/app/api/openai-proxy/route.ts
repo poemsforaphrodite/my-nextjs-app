@@ -6,6 +6,10 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const encoder = new TextEncoder();
 
+interface StreamChunk {
+  choices: { delta?: { content?: string } }[];
+}
+
 // Template copied from server-side file to keep consistent
 const DOCUMENTATION_TEMPLATE = `
 You are provided with a Python script. Your task is to return extremely detailed documentation in a SINGLE JSON object (no additional text). The JSON MUST follow the exact structure below and every field must be present.
@@ -124,7 +128,6 @@ export async function POST(request: NextRequest) {
 
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Receiving response from OpenAI...' })}\n\n`));
 
-          interface StreamChunk { choices: { delta?: { content?: string } }[] }
           for await (const chunk of completion as AsyncIterable<StreamChunk>) {
             const delta = chunk.choices?.[0]?.delta?.content ?? '';
             if (delta) {

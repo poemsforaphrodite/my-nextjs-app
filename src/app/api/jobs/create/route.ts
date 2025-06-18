@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createJob, updateJob } from '../[jobId]/route';
+import { createJob, updateJob } from '@/lib/job-store';
 import OpenAI from 'openai';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
