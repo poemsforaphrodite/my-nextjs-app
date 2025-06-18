@@ -2,6 +2,12 @@
   "functions": {
     "src/app/api/openai-proxy/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/generate-docs/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/jobs/*/route.ts": {
+      "maxDuration": 60
     }
   }
 }

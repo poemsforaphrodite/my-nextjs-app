@@ -236,7 +236,7 @@ export default function Home() {
         excelCsv = XLSX.utils.sheet_to_csv(wb.Sheets[firstSheet]);
       }
       
-      // Step 1: Generate documentation using OpenAI proxy (streaming)
+      // Step 1: Try streaming first (for faster models), fallback to background job for O3
       const response = await fetch('/api/openai-proxy', {
         method: 'POST',
         headers: {
@@ -246,6 +246,7 @@ export default function Home() {
           pythonCode: fileContent,
           filename: file.name,
           existingExcel: excelCsv,
+          useBackgroundJob: true, // Always use background job for O3
         }),
       });
 
@@ -260,51 +261,17 @@ export default function Home() {
         throw new Error(errMsg);
       }
 
-      // Handle Server-Sent Events stream
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let documentationResult = null;
+      const responseData = await response.json();
 
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                
-                if (data.error) {
-                  throw new Error(data.error);
-                }
-                
-                if (data.progress) {
-                  setProgressMessage(data.progress);
-                }
-                
-                if (data.complete && data.documentation) {
-                  documentationResult = data.documentation;
-                }
-                
-              } catch (parseError) {
-                // Skip malformed JSON chunks
-                console.warn('Failed to parse SSE data:', parseError);
-              }
-            }
-          }
-        }
+      // If background job, poll for results
+      if (responseData.usePolling && responseData.jobId) {
+        const documentationResult = await pollForJobCompletion(responseData.jobId);
+        setDocumentation(documentationResult);
+        setSuccessMessage(`Documentation generated successfully! You can view it below or download it as a DOCX file.`);
+      } else {
+        // Handle streaming response (fallback)
+        await handleStreamingResponse(response);
       }
-
-      if (!documentationResult) {
-        throw new Error('No documentation received from OpenAI');
-      }
-
-      setDocumentation(documentationResult);
-      setSuccessMessage(`Documentation generated successfully! You can view it below or download it as a DOCX file.`);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -312,6 +279,96 @@ export default function Home() {
       setIsProcessing(false);
       setProgressMessage('');
     }
+  };
+
+  const pollForJobCompletion = async (jobId: string): Promise<Documentation> => {
+    setProgressMessage('Job created, processing with O3 model...');
+    
+    const pollInterval = 2000; // Poll every 2 seconds
+    const maxPollTime = 10 * 60 * 1000; // Maximum 10 minutes
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxPollTime) {
+      try {
+        const jobResponse = await fetch(`/api/jobs/${jobId}`);
+        
+        if (!jobResponse.ok) {
+          throw new Error('Failed to check job status');
+        }
+
+        const job = await jobResponse.json();
+        setProgressMessage(job.progress || 'Processing...');
+
+        if (job.status === 'completed') {
+          // Clean up job
+          await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+          return job.result;
+        }
+
+        if (job.status === 'failed') {
+          // Clean up job
+          await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+          throw new Error(job.error || 'Job failed');
+        }
+
+        // Wait before next poll
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      } catch (pollError) {
+        console.error('Polling error:', pollError);
+        // Continue polling unless it's a critical error
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      }
+    }
+
+    throw new Error('Job timed out after 10 minutes');
+  };
+
+  const handleStreamingResponse = async (response: Response) => {
+    // Handle Server-Sent Events stream (fallback for fast models)
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let documentationResult = null;
+
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.error) {
+                throw new Error(data.error);
+              }
+              
+              if (data.progress) {
+                setProgressMessage(data.progress);
+              }
+              
+              if (data.complete && data.documentation) {
+                documentationResult = data.documentation;
+              }
+              
+            } catch (parseError) {
+              // Skip malformed JSON chunks
+              console.warn('Failed to parse SSE data:', parseError);
+            }
+          }
+        }
+      }
+    }
+
+    if (!documentationResult) {
+      throw new Error('No documentation received from OpenAI');
+    }
+
+    setDocumentation(documentationResult);
+    setSuccessMessage(`Documentation generated successfully! You can view it below or download it as a DOCX file.`);
   };
 
   const downloadDocumentation = async () => {

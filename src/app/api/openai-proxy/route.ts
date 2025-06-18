@@ -56,7 +56,7 @@ export const maxDuration = 60; // Set max duration to 60 seconds
 
 export async function POST(request: NextRequest) {
   try {
-    const { pythonCode, filename, existingExcel } = await request.json();
+    const { pythonCode, filename, existingExcel, useBackgroundJob } = await request.json();
 
     if (!pythonCode) {
       return NextResponse.json({ error: 'pythonCode is required' }, { status: 400 });
@@ -64,6 +64,22 @@ export async function POST(request: NextRequest) {
 
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 });
+    }
+
+    // If background job requested, redirect to job creation
+    if (useBackgroundJob) {
+      const jobResponse = await fetch(`${request.nextUrl.origin}/api/jobs/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pythonCode, filename, existingExcel })
+      });
+      
+      if (!jobResponse.ok) {
+        throw new Error('Failed to create background job');
+      }
+      
+      const { jobId } = await jobResponse.json();
+      return NextResponse.json({ jobId, usePolling: true });
     }
 
     // Build user prompt with optional Excel content
@@ -81,22 +97,30 @@ export async function POST(request: NextRequest) {
           // Send initial progress
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Starting OpenAI analysis...' })}\n\n`));
           
-          const completion = await openai.chat.completions.create({
-            model: process.env.OPENAI_MODEL || 'o3-2025-04-16', // Use O3 model by default
-            response_format: { type: 'json_object' },
-            stream: true,
-            messages: [
-              {
-                role: 'system',
-                content:
-                  'You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.',
-              },
-              {
-                role: 'user',
-                content: userContent,
-              },
-            ],
+          // Create a timeout promise for 45 seconds (leave buffer for Vercel)
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('OpenAI request timeout after 45 seconds')), 45000);
           });
+
+          const completion = await Promise.race([
+            openai.chat.completions.create({
+              model: process.env.OPENAI_MODEL || 'o3-2025-04-16', // Use O3 model by default
+              response_format: { type: 'json_object' },
+              stream: true,
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    'You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.',
+                },
+                {
+                  role: 'user',
+                  content: userContent,
+                },
+              ],
+            }),
+            timeoutPromise
+          ]);
 
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Receiving response from OpenAI...' })}\n\n`));
 
@@ -107,9 +131,9 @@ export async function POST(request: NextRequest) {
               docString += delta;
               chunkCount++;
               
-              // Send progress updates every 10 chunks
-              if (chunkCount % 10 === 0) {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: `Processing... (${chunkCount} chunks)` })}\n\n`));
+              // Send progress updates every 5 chunks for better feedback
+              if (chunkCount % 5 === 0) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: `Processing O3 response... (${chunkCount} chunks received)` })}\n\n`));
               }
             }
           }
@@ -121,7 +145,46 @@ export async function POST(request: NextRequest) {
           controller.close();
         } catch (err: unknown) {
           console.error('openai-proxy error', err);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err instanceof Error ? err.message : 'unknown error' })}\n\n`));
+          const errorMessage = err instanceof Error ? err.message : 'unknown error';
+          
+          // If timeout, try fallback with faster model
+          if (errorMessage.includes('timeout') && (process.env.OPENAI_MODEL === 'o3-2025-04-16' || !process.env.OPENAI_MODEL)) {
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Timeout detected, retrying with faster model...' })}\n\n`));
+              
+              const fallbackCompletion = await openai.chat.completions.create({
+                model: 'gpt-4o-mini',
+                response_format: { type: 'json_object' },
+                stream: true,
+                messages: [
+                  {
+                    role: 'system',
+                    content: 'You are a technical documentation expert. Generate concise but comprehensive documentation following the exact JSON format provided.',
+                  },
+                  {
+                    role: 'user',
+                    content: userContent,
+                  },
+                ],
+              });
+
+              let fallbackDocString = '';
+              for await (const chunk of fallbackCompletion as AsyncIterable<StreamChunk>) {
+                const delta = chunk.choices?.[0]?.delta?.content ?? '';
+                if (delta) {
+                  fallbackDocString += delta;
+                }
+              }
+
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ complete: true, documentation: JSON.parse(fallbackDocString) })}\n\n`));
+              controller.close();
+              return;
+            } catch (fallbackErr) {
+              console.error('Fallback also failed', fallbackErr);
+            }
+          }
+          
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMessage })}\n\n`));
           controller.close();
         }
       },
