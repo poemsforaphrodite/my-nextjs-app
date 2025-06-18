@@ -246,7 +246,7 @@ export default function Home() {
           pythonCode: fileContent,
           filename: file.name,
           existingExcel: excelCsv,
-          useBackgroundJob: true, // Always use background job for O3
+          useBackgroundJob: false,
         }),
       });
 

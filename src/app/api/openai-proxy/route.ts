@@ -60,7 +60,7 @@ export const maxDuration = 60; // Set max duration to 60 seconds
 
 export async function POST(request: NextRequest) {
   try {
-    const { pythonCode, filename, existingExcel, useBackgroundJob } = await request.json();
+    const { pythonCode, filename, existingExcel } = await request.json();
 
     if (!pythonCode) {
       return NextResponse.json({ error: 'pythonCode is required' }, { status: 400 });
@@ -68,22 +68,6 @@ export async function POST(request: NextRequest) {
 
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 });
-    }
-
-    // If background job requested, redirect to job creation
-    if (useBackgroundJob) {
-      const jobResponse = await fetch(`${request.nextUrl.origin}/api/jobs/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pythonCode, filename, existingExcel })
-      });
-      
-      if (!jobResponse.ok) {
-        throw new Error('Failed to create background job');
-      }
-      
-      const { jobId } = await jobResponse.json();
-      return NextResponse.json({ jobId, usePolling: true });
     }
 
     // Build user prompt with optional Excel content
@@ -108,7 +92,7 @@ export async function POST(request: NextRequest) {
 
           const completion = await Promise.race([
             openai.chat.completions.create({
-              model: process.env.OPENAI_MODEL || 'o3-2025-04-16', // Use O3 model by default
+              model: process.env.OPENAI_MODEL || 'o4-mini-2025-04-16',
               response_format: { type: 'json_object' },
               stream: true,
               messages: [
@@ -136,7 +120,7 @@ export async function POST(request: NextRequest) {
               
               // Send progress updates every 5 chunks for better feedback
               if (chunkCount % 5 === 0) {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: `Processing O3 response... (${chunkCount} chunks received)` })}\n\n`));
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: `Processing O4 response... (${chunkCount} chunks received)` })}\n\n`));
               }
             }
           }
@@ -151,40 +135,11 @@ export async function POST(request: NextRequest) {
           const errorMessage = err instanceof Error ? err.message : 'unknown error';
           
           // If timeout, try fallback with faster model
-          if (errorMessage.includes('timeout') && (process.env.OPENAI_MODEL === 'o3-2025-04-16' || !process.env.OPENAI_MODEL)) {
-            try {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Timeout detected, retrying with faster model...' })}\n\n`));
-              
-              const fallbackCompletion = await openai.chat.completions.create({
-                model: 'gpt-4o-mini',
-                response_format: { type: 'json_object' },
-                stream: true,
-                messages: [
-                  {
-                    role: 'system',
-                    content: 'You are a technical documentation expert. Generate concise but comprehensive documentation following the exact JSON format provided.',
-                  },
-                  {
-                    role: 'user',
-                    content: userContent,
-                  },
-                ],
-              });
-
-              let fallbackDocString = '';
-              for await (const chunk of fallbackCompletion as AsyncIterable<StreamChunk>) {
-                const delta = chunk.choices?.[0]?.delta?.content ?? '';
-                if (delta) {
-                  fallbackDocString += delta;
-                }
-              }
-
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ complete: true, documentation: JSON.parse(fallbackDocString) })}\n\n`));
-              controller.close();
-              return;
-            } catch (fallbackErr) {
-              console.error('Fallback also failed', fallbackErr);
-            }
+          if (errorMessage.includes('timeout') && (process.env.OPENAI_MODEL === 'o4-mini-2025-04-16' || !process.env.OPENAI_MODEL)) {
+            // Already on mini model, cannot fallback further
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMessage })}\n\n`));
+            controller.close();
+            return;
           }
           
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMessage })}\n\n`));
