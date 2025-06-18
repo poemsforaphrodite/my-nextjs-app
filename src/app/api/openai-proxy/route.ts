@@ -85,30 +85,22 @@ export async function POST(request: NextRequest) {
           // Send initial progress
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Starting OpenAI analysis...' })}\n\n`));
           
-          // Create a timeout promise for 45 seconds (leave buffer for Vercel)
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('OpenAI request timeout after 45 seconds')), 45000);
+          const completion = await openai.chat.completions.create({
+            model: process.env.OPENAI_MODEL || 'gpt-4o-mini', // faster, cost-effective non-thinking model
+            response_format: { type: 'json_object' },
+            stream: true,
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.',
+              },
+              {
+                role: 'user',
+                content: userContent,
+              },
+            ],
           });
-
-          const completion = await Promise.race([
-            openai.chat.completions.create({
-              model: process.env.OPENAI_MODEL || 'o4-mini-2025-04-16',
-              response_format: { type: 'json_object' },
-              stream: true,
-              messages: [
-                {
-                  role: 'system',
-                  content:
-                    'You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.',
-                },
-                {
-                  role: 'user',
-                  content: userContent,
-                },
-              ],
-            }),
-            timeoutPromise
-          ]);
 
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Receiving response from OpenAI...' })}\n\n`));
 
@@ -120,7 +112,7 @@ export async function POST(request: NextRequest) {
               
               // Send progress updates every 5 chunks for better feedback
               if (chunkCount % 5 === 0) {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: `Processing O4 response... (${chunkCount} chunks received)` })}\n\n`));
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: `Processing response... (${chunkCount} chunks received)` })}\n\n`));
               }
             }
           }
@@ -134,14 +126,7 @@ export async function POST(request: NextRequest) {
           console.error('openai-proxy error', err);
           const errorMessage = err instanceof Error ? err.message : 'unknown error';
           
-          // If timeout, try fallback with faster model
-          if (errorMessage.includes('timeout') && (process.env.OPENAI_MODEL === 'o4-mini-2025-04-16' || !process.env.OPENAI_MODEL)) {
-            // Already on mini model, cannot fallback further
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMessage })}\n\n`));
-            controller.close();
-            return;
-          }
-          
+          // No special timeout handling now – simply forward error
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMessage })}\n\n`));
           controller.close();
         }
