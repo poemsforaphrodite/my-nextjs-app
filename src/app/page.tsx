@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, Download, CheckCircle, X, Heart } from 'lucide-react';
 import { saveAs } from 'file-saver';
@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import * as XLSX from 'xlsx';
 
 interface Documentation {
   description: string;
@@ -196,31 +197,23 @@ const DocumentationViewer = ({
 };
 
 export default function Home() {
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(null); // Python file
+  const [excelFile, setExcelFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
   const [documentation, setDocumentation] = useState<Documentation | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    const uploadedFile = acceptedFiles[0];
-    if (uploadedFile && uploadedFile.name.endsWith('.py')) {
-      setFile(uploadedFile);
-      setError('');
-      setDocumentation(null);
-      setSuccessMessage('');
-    } else {
-      setError('Please upload a Python (.py) file');
-    }
-  }, []);
-
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'text/x-python': ['.py'],
+    accept: { 'text/x-python': ['.py'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
+    multiple: true,
+    onDrop: (acceptedFiles) => {
+      const py = acceptedFiles.find((f) => f.name.endsWith('.py')) ?? null;
+      const xl = acceptedFiles.find((f) => f.name.endsWith('.xlsx')) ?? null;
+      if (py) setFile(py);
+      if (xl) setExcelFile(xl);
     },
-    multiple: false,
   });
 
   const generateDocumentation = async () => {
@@ -233,6 +226,13 @@ export default function Home() {
 
     try {
       const fileContent = await file.text();
+      let excelCsv: string | null = null;
+      if (excelFile) {
+        const arrayBuffer = await excelFile.arrayBuffer();
+        const wb = XLSX.read(arrayBuffer, { type: 'array' });
+        const firstSheet = wb.SheetNames[0];
+        excelCsv = XLSX.utils.sheet_to_csv(wb.Sheets[firstSheet]);
+      }
       
       // Step 1: Generate documentation using OpenAI proxy (streaming)
       const response = await fetch('/api/openai-proxy', {
@@ -243,6 +243,7 @@ export default function Home() {
         body: JSON.stringify({
           pythonCode: fileContent,
           filename: file.name,
+          existingExcel: excelCsv,
         }),
       });
 
