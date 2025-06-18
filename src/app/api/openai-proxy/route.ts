@@ -52,6 +52,8 @@ Additional Guidance:
 - WRITE ALL INTEGRATION RULES IN THE "integratedRules" FIELD. WRITE ALL STEPS DONT LEAVE ANYTHING OUT.
 `;
 
+export const maxDuration = 60; // Set max duration to 60 seconds
+
 export async function POST(request: NextRequest) {
   try {
     const { pythonCode, filename, existingExcel } = await request.json();
@@ -74,9 +76,13 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         let docString = '';
+        let chunkCount = 0;
         try {
+          // Send initial progress
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Starting OpenAI analysis...' })}\n\n`));
+          
           const completion = await openai.chat.completions.create({
-            model: 'o3-2025-04-16',
+            model: process.env.OPENAI_MODEL || 'o3-2025-04-16', // Use O3 model by default
             response_format: { type: 'json_object' },
             stream: true,
             messages: [
@@ -92,14 +98,23 @@ export async function POST(request: NextRequest) {
             ],
           });
 
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Receiving response from OpenAI...' })}\n\n`));
+
           interface StreamChunk { choices: { delta?: { content?: string } }[] }
           for await (const chunk of completion as AsyncIterable<StreamChunk>) {
             const delta = chunk.choices?.[0]?.delta?.content ?? '';
             if (delta) {
               docString += delta;
-              // You could stream partial but keep minimal to reduce size
+              chunkCount++;
+              
+              // Send progress updates every 10 chunks
+              if (chunkCount % 10 === 0) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: `Processing... (${chunkCount} chunks)` })}\n\n`));
+              }
             }
           }
+
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Parsing documentation...' })}\n\n`));
 
           // Send final SSE
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ complete: true, documentation: JSON.parse(docString) })}\n\n`));

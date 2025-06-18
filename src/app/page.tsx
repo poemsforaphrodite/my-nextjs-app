@@ -204,6 +204,7 @@ export default function Home() {
   const [successMessage, setSuccessMessage] = useState<string>('');
   const [documentation, setDocumentation] = useState<Documentation | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [progressMessage, setProgressMessage] = useState<string>('');
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: { 'text/x-python': ['.py'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
@@ -223,6 +224,7 @@ export default function Home() {
     setError('');
     setSuccessMessage('');
     setDocumentation(null);
+    setProgressMessage('');
 
     try {
       const fileContent = await file.text();
@@ -280,12 +282,13 @@ export default function Home() {
                   throw new Error(data.error);
                 }
                 
+                if (data.progress) {
+                  setProgressMessage(data.progress);
+                }
+                
                 if (data.complete && data.documentation) {
                   documentationResult = data.documentation;
                 }
-                
-                // Handle partial chunks for progress indication
-                // You could add progress updates here if needed
                 
               } catch (parseError) {
                 // Skip malformed JSON chunks
@@ -307,6 +310,7 @@ export default function Home() {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setIsProcessing(false);
+      setProgressMessage('');
     }
   };
 
@@ -473,7 +477,7 @@ export default function Home() {
                   <div className="mt-4">
                     <Progress value={33} className="w-full" />
                     <p className="text-xs text-muted-foreground mt-1">
-                      Analyzing code and generating documentation...
+                      {progressMessage || 'Analyzing code and generating documentation...'}
                     </p>
                   </div>
                 )}
