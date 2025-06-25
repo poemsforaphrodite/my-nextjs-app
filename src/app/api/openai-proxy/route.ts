@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { safeJsonParse } from '@/lib/utils';
 
 // Initialize client once (Edge runtime not supported -> Node)
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -118,7 +119,17 @@ export async function POST(request: NextRequest) {
             }
 
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Parsing JSON...' })}\n\n`));
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ complete: true, documentation: JSON.parse(docString) })}\n\n`));
+
+            // Attempt to parse the accumulated JSON string robustly
+            const parsedDoc = safeJsonParse(docString);
+
+            if (parsedDoc === undefined) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Failed to parse documentation JSON' })}\n\n`));
+              controller.close();
+              return;
+            }
+
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ complete: true, documentation: parsedDoc })}\n\n`));
             controller.close();
           } catch (err: unknown) {
             console.error('openai-proxy error', err);
