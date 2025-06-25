@@ -11,7 +11,6 @@ import {
   WidthType,
   BorderStyle,
   AlignmentType,
-  ShadingType,
   convertInchesToTwip
 } from 'docx';
 import { createDocxFromDocumentation } from '@/lib/docx-util';

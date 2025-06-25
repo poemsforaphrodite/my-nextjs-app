@@ -1,4 +1,4 @@
-import { Document, Paragraph, Table, TextRun, HeadingLevel, AlignmentType, BorderStyle, WidthType, ShadingType, TableRow, TableCell, convertInchesToTwip } from 'docx';
+import { Document, Paragraph, Table, TextRun, HeadingLevel, AlignmentType, BorderStyle, WidthType, TableRow, TableCell, convertInchesToTwip } from 'docx';
 
 export interface Documentation {
   description: string;
