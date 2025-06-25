@@ -236,12 +236,12 @@ function _createInfoTable(data: string[][]) {
             children: [new TextRun({ 
               text: header || '', 
               bold: true, 
-              color: "000000",
+              color: "2C2C2C",
               size: 20
             })],
             alignment: AlignmentType.CENTER
           })],
-          shading: { fill: "FFFFFF", type: ShadingType.SOLID },
+          shading: { fill: "FFFFFF" },
           margins: { top: 200, bottom: 200, left: 200, right: 200 }
         }))
       }),
@@ -251,11 +251,11 @@ function _createInfoTable(data: string[][]) {
             children: [new TextRun({ 
               text: cell || '',
               size: 20,
-              color: "000000"
+              color: "2C2C2C"
             })],
             alignment: AlignmentType.CENTER
           })],
-          shading: { fill: "FFFFFF", type: ShadingType.SOLID },
+          shading: { fill: "FFFFFF" },
           margins: { top: 200, bottom: 200, left: 200, right: 200 }
         }))
       })
@@ -285,12 +285,12 @@ function createStyledTable(tableRows: string[][]) {
           children: [new TextRun({ 
             text: (cell || '').trim(), 
             bold: true, 
-            color: "000000",
+            color: "2C2C2C",
             size: 20
           })],
           alignment: AlignmentType.CENTER
         })],
-        shading: { fill: "FFFFFF", type: ShadingType.SOLID },
+        shading: { fill: "FFFFFF" },
         margins: { top: 200, bottom: 200, left: 200, right: 200 },
         width: { size: 100 / headerRow.length, type: WidthType.PERCENTAGE }
       }))
@@ -302,13 +302,12 @@ function createStyledTable(tableRows: string[][]) {
           children: [new TextRun({ 
             text: (cell || '').trim(),
             size: 20,
-            color: "000000"
+            color: "2C2C2C"
           })],
           alignment: AlignmentType.LEFT
         })],
         shading: { 
-          fill: index % 2 === 0 ? "F7F7F7" : "FFFFFF", 
-          type: ShadingType.SOLID 
+          fill: index % 2 === 0 ? "F7F7F7" : "FFFFFF"
         },
         margins: { top: 150, bottom: 150, left: 200, right: 200 },
         width: { size: 100 / headerRow.length, type: WidthType.PERCENTAGE }
