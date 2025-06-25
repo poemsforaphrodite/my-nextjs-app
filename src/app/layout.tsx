@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Script from "next/script";
+import Image from "next/image";
 
 export const metadata: Metadata = {
   title: "Python Documentation Generator",
@@ -17,7 +18,15 @@ export default function RootLayout({
       <body className="antialiased">
         {children}
         <Script data-collect-dnt="true" async src="https://scripts.simpleanalyticscdn.com/latest.js" strategy="afterInteractive" />
-        <noscript><img src="https://queue.simpleanalyticscdn.com/noscript.gif?collect-dnt=true" alt="" referrerPolicy="no-referrer-when-downgrade"/></noscript>
+        <noscript>
+          <Image
+            src="https://queue.simpleanalyticscdn.com/noscript.gif?collect-dnt=true"
+            alt=""
+            width={1}
+            height={1}
+            unoptimized
+          />
+        </noscript>
       </body>
     </html>
   );

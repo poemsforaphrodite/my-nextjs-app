@@ -8,7 +8,8 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const encoder = new TextEncoder();
 
 // Helper function to send SSE events with proper formatting
-function sendSSE(controller: ReadableStreamDefaultController<Uint8Array>, obj: any) {
+type SSEPayload = Record<string, unknown>; // or a stricter union of expected keys
+function sendSSE(controller: ReadableStreamDefaultController<Uint8Array>, obj: SSEPayload) {
   controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
 }
 
