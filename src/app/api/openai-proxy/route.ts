@@ -78,58 +78,55 @@ export async function POST(request: NextRequest) {
     userContent += `\n\nPlease generate the documentation following the exact template format provided above.`;
 
     const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        let docString = '';
-        let chunkCount = 0;
-        try {
-          // Send initial progress
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Starting OpenAI analysis...' })}\n\n`));
-          
-          const completion = await openai.chat.completions.create({
-            model: process.env.OPENAI_MODEL || 'gpt-4o-mini', // faster, cost-effective non-thinking model
-            response_format: { type: 'json_object' },
-            stream: true,
-            messages: [
-              {
-                role: 'system',
-                content:
-                  'You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.',
-              },
-              {
-                role: 'user',
-                content: userContent,
-              },
-            ],
-          });
+      start(controller) {
+        // 1️⃣  Send a heartbeat immediately so Vercel records the first byte < 60 s
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Job accepted, spinning up LLM...' })}\n\n`));
 
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Receiving response from OpenAI...' })}\n\n`));
+        // 2️⃣ Run the heavy OpenAI work without blocking the flush
+        (async () => {
+          let docString = '';
+          let chunkCount = 0;
+          try {
+            const completion = await openai.chat.completions.create({
+              model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+              response_format: { type: 'json_object' },
+              stream: true,
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    'You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.',
+                },
+                {
+                  role: 'user',
+                  content: userContent,
+                },
+              ],
+            });
 
-          for await (const chunk of completion as AsyncIterable<StreamChunk>) {
-            const delta = chunk.choices?.[0]?.delta?.content ?? '';
-            if (delta) {
-              docString += delta;
-              chunkCount++;
-              
-              // Send progress updates every 5 chunks for better feedback
-              if (chunkCount % 5 === 0) {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: `Processing response... (${chunkCount} chunks received)` })}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Streaming from OpenAI...' })}\n\n`));
+
+            for await (const chunk of completion as AsyncIterable<StreamChunk>) {
+              const delta = chunk.choices?.[0]?.delta?.content ?? '';
+              if (delta) {
+                docString += delta;
+                chunkCount++;
+                if (chunkCount % 20 === 0) {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: `Received ${chunkCount} chunks...` })}\n\n`));
+                }
               }
             }
+
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Parsing JSON...' })}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ complete: true, documentation: JSON.parse(docString) })}\n\n`));
+            controller.close();
+          } catch (err: unknown) {
+            console.error('openai-proxy error', err);
+            const errorMessage = err instanceof Error ? err.message : 'unknown error';
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMessage })}\n\n`));
+            controller.close();
           }
-
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Parsing documentation...' })}\n\n`));
-
-          // Send final SSE
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ complete: true, documentation: JSON.parse(docString) })}\n\n`));
-          controller.close();
-        } catch (err: unknown) {
-          console.error('openai-proxy error', err);
-          const errorMessage = err instanceof Error ? err.message : 'unknown error';
-          
-          // No special timeout handling now – simply forward error
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMessage })}\n\n`));
-          controller.close();
-        }
+        })();
       },
     });
 

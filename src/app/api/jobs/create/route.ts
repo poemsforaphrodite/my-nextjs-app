@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createJob, updateJob } from '@/lib/job-store';
 import OpenAI from 'openai';
+import { after } from 'next/server';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -63,16 +64,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 });
     }
 
-    // Generate unique job ID
-    const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Create job
+    // Create a unique job ID and respond immediately
+    const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     createJob(jobId);
 
-    // Start background processing (fire and forget)
-    processInBackground(jobId, pythonCode, filename, existingExcel);
+    const res = NextResponse.json({ jobId });
 
-    return NextResponse.json({ jobId });
+    // Kick the heavy work to run AFTER the response
+    after(() => processInBackground(jobId, pythonCode, filename, existingExcel));
+
+    return res;
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'unknown error';
     console.error('job creation error', e);
