@@ -7,6 +7,11 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const encoder = new TextEncoder();
 
+// Helper function to send SSE events with proper formatting
+function sendSSE(controller: ReadableStreamDefaultController<Uint8Array>, obj: any) {
+  controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+}
+
 interface StreamChunk {
   choices: { delta?: { content?: string } }[];
 }
@@ -81,13 +86,16 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         // 1️⃣  Send a heartbeat immediately so Vercel records the first byte < 60 s
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Job accepted, spinning up LLM...' })}\n\n`));
+        const initialMsg = { progress: 'Job accepted, spinning up LLM...' };
+        console.log('[openai-proxy]', initialMsg);
+        sendSSE(controller, initialMsg);
 
         // 2️⃣ Run the heavy OpenAI work without blocking the flush
         (async () => {
           let docString = '';
           let chunkCount = 0;
           try {
+            console.log('[openai-proxy] → calling OpenAI');
             const completion = await openai.chat.completions.create({
               model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
               response_format: { type: 'json_object' },
@@ -105,7 +113,9 @@ export async function POST(request: NextRequest) {
               ],
             });
 
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Streaming from OpenAI...' })}\n\n`));
+            const streamMsg = { progress: 'Streaming from OpenAI...' };
+            console.log('[openai-proxy]', streamMsg);
+            sendSSE(controller, streamMsg);
 
             for await (const chunk of completion as AsyncIterable<StreamChunk>) {
               const delta = chunk.choices?.[0]?.delta?.content ?? '';
@@ -113,28 +123,30 @@ export async function POST(request: NextRequest) {
                 docString += delta;
                 chunkCount++;
                 if (chunkCount % 20 === 0) {
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: `Received ${chunkCount} chunks...` })}\n\n`));
+                  const prog = { progress: `Received ${chunkCount} chunks...` };
+                  console.log('[openai-proxy]', prog);
+                  sendSSE(controller, prog);
                 }
               }
             }
 
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ progress: 'Parsing JSON...' })}\n\n`));
-
-            // Attempt to parse the accumulated JSON string robustly
+            console.log('[openai-proxy] finished streaming, length', docString.length);
             const parsedDoc = safeJsonParse(docString);
 
             if (parsedDoc === undefined) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Failed to parse documentation JSON' })}\n\n`));
+              console.warn('[openai-proxy] JSON parse failed, payload starts with', docString.slice(0, 120));
+              sendSSE(controller, { error: 'Failed to parse documentation JSON' });
               controller.close();
               return;
             }
 
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ complete: true, documentation: parsedDoc })}\n\n`));
+            sendSSE(controller, { complete: true, documentation: parsedDoc });
+            console.log('[openai-proxy] ✅ done');
             controller.close();
           } catch (err: unknown) {
-            console.error('openai-proxy error', err);
+            console.error('[openai-proxy] error', err);
             const errorMessage = err instanceof Error ? err.message : 'unknown error';
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMessage })}\n\n`));
+            sendSSE(controller, { error: errorMessage });
             controller.close();
           }
         })();

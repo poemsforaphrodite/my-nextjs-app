@@ -26,3 +26,47 @@ export function safeJsonParse(str: string): unknown | undefined {
     return undefined;
   }
 }
+
+/**
+ * Async generator that yields parsed JSON objects from an SSE Response.
+ * Usage:  for await (const obj of decodeSSE(resp)) {...}
+ */
+export async function* decodeSSE(resp: Response): AsyncGenerator<unknown, void, unknown> {
+  if (!resp.body) {
+    return;
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const frame = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 2);
+
+        const lines = frame.split('\n');
+        const jsonStr = lines
+          .filter(l => l.startsWith('data:'))
+          .map(l => l.slice(5).trimStart())   // 5 = "data:"
+          .join('');
+        if (jsonStr) {
+          const parsed = safeJsonParse(jsonStr);
+          if (parsed !== undefined) {
+            yield parsed;
+          } else {
+            console.warn('Failed to parse SSE frame:', jsonStr);
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}

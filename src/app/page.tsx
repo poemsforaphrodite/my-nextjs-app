@@ -11,6 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import * as XLSX from 'xlsx';
+import { decodeSSE } from '@/lib/utils';
 
 interface Documentation {
   description: string;
@@ -261,16 +262,23 @@ export default function Home() {
         throw new Error(errMsg);
       }
 
-      const responseData = await response.json();
-
-      // If background job, poll for results
-      if (responseData.usePolling && responseData.jobId) {
-        const documentationResult = await pollForJobCompletion(responseData.jobId);
-        setDocumentation(documentationResult);
-        setSuccessMessage(`Documentation generated successfully! You can view it below or download it as a DOCX file.`);
-      } else {
-        // Handle streaming response (fallback)
+      // Check if response is streaming (SSE) or JSON
+      const contentType = response.headers.get('Content-Type');
+      if (contentType && contentType.includes('text/event-stream')) {
+        // Handle streaming response (SSE)
         await handleStreamingResponse(response);
+      } else {
+        // Handle JSON response (background job)
+        const responseData = await response.json();
+        
+        if (responseData.usePolling && responseData.jobId) {
+          const documentationResult = await pollForJobCompletion(responseData.jobId);
+          setDocumentation(documentationResult);
+          setSuccessMessage(`Documentation generated successfully! You can view it below or download it as a DOCX file.`);
+        } else {
+          // This shouldn't happen with current implementation, but handle gracefully
+          throw new Error('Unexpected response format: expected streaming or polling job');
+        }
       }
 
     } catch (err) {
@@ -324,47 +332,60 @@ export default function Home() {
   };
 
   const handleStreamingResponse = async (response: Response) => {
-    // Handle Server-Sent Events stream (fallback for fast models)
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
+    // Handle Server-Sent Events stream using robust parser
     let documentationResult = null;
+    let frameCount = 0;
+    let errorCount = 0;
 
-    if (reader) {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              
-              if (data.error) {
-                throw new Error(data.error);
-              }
-              
-              if (data.progress) {
-                setProgressMessage(data.progress);
-              }
-              
-              if (data.complete && data.documentation) {
-                documentationResult = data.documentation;
-              }
-              
-            } catch (parseError) {
-              // Skip malformed JSON chunks
-              console.warn('Failed to parse SSE data:', parseError);
-            }
-          }
+    try {
+      for await (const data of decodeSSE(response)) {
+        frameCount++;
+        
+        // Check if parsed data is valid
+        if (data === undefined || data === null) {
+          errorCount++;
+          console.warn(`Received invalid SSE frame ${frameCount}: data is ${data}`);
+          continue; // Continue processing instead of crashing
         }
+        
+        // Ensure data is an object
+        if (typeof data !== 'object') {
+          errorCount++;
+          console.warn(`Received invalid SSE frame ${frameCount}: expected object, got ${typeof data}`);
+          continue;
+        }
+        
+        const msg = data as { error?: string; progress?: string; complete?: boolean; documentation?: Documentation };
+        
+        if (msg.error) {
+          throw new Error(msg.error);
+        }
+        
+        if (msg.progress) {
+          setProgressMessage(msg.progress);
+        }
+        
+        if (msg.complete && msg.documentation) {
+          documentationResult = msg.documentation;
+        }
+      }
+    } catch (parseError) {
+      console.error('SSE parsing error:', parseError);
+      // Provide more specific error message
+      if (parseError instanceof Error) {
+        throw new Error(`Failed to parse streaming response: ${parseError.message}`);
+      } else {
+        throw new Error('Failed to parse streaming response due to unknown error');
       }
     }
 
+    // Log summary of parsing results
+    if (errorCount > 0) {
+      console.warn(`SSE parsing completed with ${errorCount} unparseable frames out of ${frameCount} total frames`);
+    }
+
     if (!documentationResult) {
-      throw new Error('No documentation received from OpenAI');
+      throw new Error(`No documentation received from OpenAI (processed ${frameCount} frames, ${errorCount} errors)`);
     }
 
     setDocumentation(documentationResult);
