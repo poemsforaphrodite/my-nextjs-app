@@ -63,11 +63,11 @@ Additional Guidance:
 - WRITE ALL INTEGRATION RULES IN THE "integratedRules" FIELD. WRITE ALL STEPS DONT LEAVE ANYTHING OUT.
 `;
 
-export const maxDuration = 60; // Set max duration to 60 seconds
+export const maxDuration = 300; // Increase max duration to 5 minutes for large files
 
 export async function POST(request: NextRequest) {
   try {
-    const { pythonCode, filename, existingExcel } = await request.json();
+    const { pythonCode, filename, existingExcel, existingDocxSections } = await request.json();
 
     if (!pythonCode) {
       return NextResponse.json({ error: 'pythonCode is required' }, { status: 400 });
@@ -77,26 +77,45 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 });
     }
 
-    // Build user prompt with optional Excel content
+    // Build user prompt with optional Excel content and existing DOCX sections
     let userContent = `${DOCUMENTATION_TEMPLATE}\n\nPython file: ${filename}\n\nPython Code:\n\u0060\u0060\u0060python\n${pythonCode}\n\u0060\u0060\u0060`;
     if (existingExcel) {
       userContent += `\n\nExisting Excel Data (CSV format of first sheet):\n\u0060\u0060\u0060csv\n${existingExcel}\n\u0060\u0060\u0060`;
     }
-    userContent += `\n\nPlease generate the documentation following the exact template format provided above.`;
+    if (existingDocxSections) {
+      userContent += `\n\nExisting Word Document Sections:\n`;
+      for (const [sectionName, content] of Object.entries(existingDocxSections.sections)) {
+        const contentStr = String(content || '');
+        if (contentStr && contentStr.trim()) {
+          userContent += `\n${sectionName}:\n${contentStr}\n`;
+        }
+      }
+      
+      // Add update mode instructions
+      userContent += `\n\nCurrent Word document sections (JSON): ${JSON.stringify(existingDocxSections.sections)}\nInstructions: For each section, decide if content must change. Return\n{\n  "updatedSections": { "Description": "string", ... },\n  "unchangedSections": ["SectionName", ...]\n}`;
+      
+      userContent += `\n\nPlease update and enhance the existing sections with information from the Python code. Preserve good content where appropriate and integrate new findings.`;
+    } else {
+      userContent += `\n\nPlease generate the documentation following the exact template format provided above.`;
+    }
 
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        // 1️⃣  Send a heartbeat immediately so Vercel records the first byte < 60 s
-        const initialMsg = { progress: 'Job accepted, spinning up LLM...' };
-        console.log('[openai-proxy]', initialMsg);
-        sendSSE(controller, initialMsg);
+        // Immediately start sending data to prevent Vercel timeout
+        sendSSE(controller, { progress: 'Job accepted, initializing...' });
+        
+        // Start a keepalive timer to send regular heartbeats
+        const keepAliveInterval = setInterval(() => {
+          sendSSE(controller, { heartbeat: Date.now() });
+        }, 30000); // Send heartbeat every 30 seconds
 
-        // 2️⃣ Run the heavy OpenAI work without blocking the flush
+        // Run the OpenAI work asynchronously
         (async () => {
           let docString = '';
           let chunkCount = 0;
           try {
-            console.log('[openai-proxy] → calling OpenAI');
+            sendSSE(controller, { progress: 'Connecting to OpenAI...' });
+            
             const completion = await openai.chat.completions.create({
               model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
               response_format: { type: 'json_object' },
@@ -104,8 +123,7 @@ export async function POST(request: NextRequest) {
               messages: [
                 {
                   role: 'system',
-                  content:
-                    'You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.',
+                  content: 'You are a technical documentation expert specializing in data pipeline and analytics code documentation for a business audience. Your task is to help business users understand Python code related to sales representative activities with doctors and hospitals. You create comprehensive, structured documentation that follows specific business templates for data processing workflows, ensuring all KPIs are explained in their business context. You must explain technical steps in terms of their business impact and logic.',
                 },
                 {
                   role: 'user',
@@ -114,24 +132,32 @@ export async function POST(request: NextRequest) {
               ],
             });
 
-            const streamMsg = { progress: 'Streaming from OpenAI...' };
-            console.log('[openai-proxy]', streamMsg);
-            sendSSE(controller, streamMsg);
+            sendSSE(controller, { progress: 'Receiving response from OpenAI...' });
 
             for await (const chunk of completion as AsyncIterable<StreamChunk>) {
               const delta = chunk.choices?.[0]?.delta?.content ?? '';
               if (delta) {
                 docString += delta;
                 chunkCount++;
-                if (chunkCount % 20 === 0) {
-                  const prog = { progress: `Received ${chunkCount} chunks...` };
-                  console.log('[openai-proxy]', prog);
-                  sendSSE(controller, prog);
+                
+                // Send very frequent progress updates to maintain connection
+                if (chunkCount % 5 === 0) {
+                  sendSSE(controller, { progress: `Processing... (${chunkCount} chunks)` });
+                }
+                
+                // Try to parse and send partial results more frequently
+                if (chunkCount % 50 === 0) {
+                  const partialDoc = safeJsonParse(docString);
+                  if (partialDoc !== undefined) {
+                    sendSSE(controller, { partial: true, documentation: partialDoc });
+                  }
                 }
               }
             }
 
-            console.log('[openai-proxy] finished streaming, length', docString.length);
+            clearInterval(keepAliveInterval);
+            sendSSE(controller, { progress: 'Finalizing documentation...' });
+            
             const parsedDoc = safeJsonParse(docString);
 
             if (parsedDoc === undefined) {
@@ -141,10 +167,30 @@ export async function POST(request: NextRequest) {
               return;
             }
 
-            sendSSE(controller, { complete: true, documentation: parsedDoc });
-            console.log('[openai-proxy] ✅ done');
+            // Check if this is update mode response with the new structure
+            let finalDoc = parsedDoc;
+            if (existingDocxSections && parsedDoc && typeof parsedDoc === 'object' && 
+                'updatedSections' in parsedDoc && 'unchangedSections' in parsedDoc) {
+              // Handle update mode structure: { updatedSections, unchangedSections }
+              const { updatedSections, unchangedSections } = parsedDoc as {
+                updatedSections: Record<string, string>;
+                unchangedSections: string[];
+              };
+              
+              // Merge updated sections with unchanged sections from existing document
+              finalDoc = { ...updatedSections };
+              unchangedSections.forEach(sectionName => {
+                if (existingDocxSections.sections[sectionName] && finalDoc) {
+                  (finalDoc as Record<string, unknown>)[sectionName] = existingDocxSections.sections[sectionName];
+                }
+              });
+            }
+
+            sendSSE(controller, { complete: true, documentation: finalDoc });
+            console.log('[openai-proxy] ✅ Documentation generation completed');
             controller.close();
           } catch (err: unknown) {
+            clearInterval(keepAliveInterval);
             console.error('[openai-proxy] error', err);
             const errorMessage = err instanceof Error ? err.message : 'unknown error';
             sendSSE(controller, { error: errorMessage });

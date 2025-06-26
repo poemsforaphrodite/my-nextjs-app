@@ -1,4 +1,5 @@
 import { Document, Paragraph, Table, TextRun, HeadingLevel, AlignmentType, BorderStyle, WidthType, TableRow, TableCell, convertInchesToTwip } from 'docx';
+import * as mammoth from 'mammoth';
 
 export interface Documentation {
   description: string;
@@ -18,6 +19,29 @@ export interface Documentation {
   }[];
   integratedRules: string[];
 }
+
+// Type for partial documentation updates in streaming mode
+export interface PartialDocumentationUpdate {
+  updatedSections?: Partial<Documentation>;
+  unchangedSections?: (keyof Documentation)[];
+}
+
+// Response type from streaming API that can be either complete or partial
+export type StreamingDocumentationResponse = Documentation | PartialDocumentationUpdate;
+
+export type SectionName = 
+  | 'description'
+  | 'tableGrain'
+  | 'dataSources'
+  | 'databricksTables'
+  | 'tableMetadata'
+  | 'integratedRules';
+
+export interface ExtractedSections {
+  sections: Record<SectionName, string>;
+  rawText: string;
+}
+
 
 function createSectionHeader(text: string): Paragraph {
   return new Paragraph({
@@ -186,4 +210,122 @@ export function createDocxFromDocumentation(doc: Documentation, filename: string
       },
     ],
   });
-} 
+}
+
+/**
+ * Extracts plain text from HTML, removing all styling and formatting
+ * to minimize token count for LLM processing
+ */
+export function stripHtmlAndStyles(html: string): string {
+  // Remove HTML tags
+  const textWithoutTags = html.replace(/<[^>]*>/g, '');
+  
+  // Decode HTML entities
+  const htmlEntities: Record<string, string> = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#39;': "'",
+    '&nbsp;': ' ',
+    '&ndash;': '–',
+    '&mdash;': '—',
+    '&ldquo;': '"',
+    '&rdquo;': '"',
+    '&lsquo;': "'",
+    '&rsquo;': "'",
+  };
+  
+  let decodedText = textWithoutTags;
+  for (const [entity, replacement] of Object.entries(htmlEntities)) {
+    decodedText = decodedText.replace(new RegExp(entity, 'g'), replacement);
+  }
+  
+  // Replace multiple whitespace with single space and trim
+  return decodedText.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Extracts sections from a DOCX file based on canonical headers
+ * @param docxBuffer ArrayBuffer containing the DOCX file data
+ * @returns Promise containing extracted sections and raw text
+ */
+export async function extractSections(docxBuffer: ArrayBuffer): Promise<ExtractedSections> {
+  try {
+    // Convert DOCX to HTML using mammoth
+    const result = await mammoth.convertToHtml({ arrayBuffer: docxBuffer });
+    const html = result.value;
+    
+    // Extract raw text (stripped of HTML and styles)
+    const rawText = stripHtmlAndStyles(html);
+    
+    // Define the canonical headers to look for
+    const headerPatterns = {
+      description: /^\s*1\.?\s*description/i,
+      tableGrain: /^\s*2\.?\s*table\s+grain/i,
+      dataSources: /^\s*3\.?\s*data\s+sources/i,
+      databricksTables: /^\s*4\.?\s*databricks\s+tables/i,
+      tableMetadata: /^\s*5\.?\s*table\s+metadata/i,
+      integratedRules: /^\s*6\.?\s*integrated\s+rules/i,
+    };
+    
+    // Initialize sections object
+    const sections: Record<SectionName, string> = {
+      description: '',
+      tableGrain: '',
+      dataSources: '',
+      databricksTables: '',
+      tableMetadata: '',
+      integratedRules: '',
+    };
+    
+    // Split the raw text into lines for processing
+    const lines = rawText.split('\n');
+    let currentSection: SectionName | null = null;
+    let sectionContent: string[] = [];
+    
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      
+      // Skip empty lines
+      if (!trimmedLine) continue;
+      
+      // Check if this line matches any header pattern
+      let matchedSection: SectionName | null = null;
+      for (const [sectionName, pattern] of Object.entries(headerPatterns)) {
+        if (pattern.test(trimmedLine)) {
+          matchedSection = sectionName as SectionName;
+          break;
+        }
+      }
+      
+      // If we found a new section header
+      if (matchedSection) {
+        // Save the previous section's content if it exists
+        if (currentSection && sectionContent.length > 0) {
+          sections[currentSection] = sectionContent.join('\n').trim();
+        }
+        
+        // Start the new section
+        currentSection = matchedSection;
+        sectionContent = [];
+      } else if (currentSection) {
+        // Add line to current section (skip the header line itself)
+        sectionContent.push(trimmedLine);
+      }
+    }
+    
+    // Don't forget to save the last section
+    if (currentSection && sectionContent.length > 0) {
+      sections[currentSection] = sectionContent.join('\n').trim();
+    }
+    
+    return {
+      sections,
+      rawText,
+    };
+  } catch (error) {
+    console.error('Error extracting sections from DOCX:', error);
+    throw new Error(`Failed to extract sections from DOCX: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}

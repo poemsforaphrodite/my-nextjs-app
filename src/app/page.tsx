@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import * as XLSX from 'xlsx';
 import { decodeSSE } from '@/lib/utils';
+import { extractSections, ExtractedSections } from '@/lib/docx-util';
 
 interface Documentation {
   description: string;
@@ -200,6 +201,7 @@ const DocumentationViewer = ({
 export default function Home() {
   const [file, setFile] = useState<File | null>(null); // Python file
   const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [wordFile, setWordFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
@@ -208,13 +210,19 @@ export default function Home() {
   const [progressMessage, setProgressMessage] = useState<string>('');
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    accept: { 'text/x-python': ['.py'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
+    accept: { 
+      'text/x-python': ['.py'], 
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx']
+    },
     multiple: true,
     onDrop: (acceptedFiles) => {
       const py = acceptedFiles.find((f) => f.name.endsWith('.py')) ?? null;
       const xl = acceptedFiles.find((f) => f.name.endsWith('.xlsx')) ?? null;
+      const docx = acceptedFiles.find((f) => f.name.endsWith('.docx')) ?? null;
       if (py) setFile(py);
       if (xl) setExcelFile(xl);
+      if (docx) setWordFile(docx);
     },
   });
 
@@ -237,6 +245,13 @@ export default function Home() {
         excelCsv = XLSX.utils.sheet_to_csv(wb.Sheets[firstSheet]);
       }
       
+      // Extract sections from Word file if provided
+      let existingDocxSections: ExtractedSections | null = null;
+      if (wordFile) {
+        const wordArrayBuffer = await wordFile.arrayBuffer();
+        existingDocxSections = await extractSections(wordArrayBuffer);
+      }
+      
       // Step 1: Try streaming first (for faster models), fallback to background job for O3
       const response = await fetch('/api/openai-proxy', {
         method: 'POST',
@@ -247,6 +262,7 @@ export default function Home() {
           pythonCode: fileContent,
           filename: file.name,
           existingExcel: excelCsv,
+          existingDocxSections: existingDocxSections,
           useBackgroundJob: false,
         }),
       });
@@ -452,7 +468,8 @@ export default function Home() {
           <CardHeader>
             <CardTitle>Upload Python File</CardTitle>
             <CardDescription>
-              Upload your Python (.py) file to generate comprehensive documentation
+              Upload your Python (.py) file to generate comprehensive documentation. 
+              Excel (.xlsx) and Word (.docx) files are optional for additional context.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -499,7 +516,7 @@ export default function Home() {
                       {isDragActive ? 'Drop your Python file here' : 'Upload Python File'}
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      Drag & drop or click to browse • Only .py files accepted
+                      Drag & drop or click to browse • .py files required, .xlsx and .docx optional
                     </p>
                   </div>
                 </div>
@@ -521,46 +538,116 @@ export default function Home() {
               </Alert>
             )}
 
-            {/* Generate Button */}
-            {file && (
-              <div className="mt-6 p-4 bg-muted rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold mb-1">Ready to Generate Documentation</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Your file will be analyzed using AI to create comprehensive documentation
-                    </p>
-                  </div>
-                  <Button
-                    onClick={generateDocumentation}
-                    disabled={isProcessing}
-                    size="lg"
-                    className="min-w-[200px]"
-                  >
-                    {isProcessing ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <FileText className="w-4 h-4 mr-2" />
-                        Generate Documentation
-                      </>
-                    )}
-                  </Button>
-                </div>
+            {/* Optional Files Section */}
+            {(excelFile || wordFile) && (
+              <div className="mt-6 space-y-4">
+                <h3 className="font-semibold text-lg">Optional Files</h3>
                 
-                {isProcessing && (
-                  <div className="mt-4">
-                    <Progress value={33} className="w-full" />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {progressMessage || 'Analyzing code and generating documentation...'}
-                    </p>
-                  </div>
+                {/* Excel File Card */}
+                {excelFile && (
+                  <Card className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="rounded-full bg-green-100 p-2">
+                          <CheckCircle className="w-5 h-5 text-green-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground">{excelFile.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Excel file for additional context • {(excelFile.size / 1024).toFixed(2)} KB
+                          </p>
+                        </div>
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setExcelFile(null)}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </Card>
+                )}
+
+                {/* Word File Card */}
+                {wordFile && (
+                  <Card className="p-4 border-blue-200 bg-blue-50">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="rounded-full bg-blue-100 p-2">
+                          <CheckCircle className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground">{wordFile.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Word document for &quot;update existing document&quot; mode • {(wordFile.size / 1024).toFixed(2)} KB
+                          </p>
+                          <Badge variant="secondary" className="mt-1 text-xs">
+                            Enables document update mode
+                          </Badge>
+                        </div>
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setWordFile(null)}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </Card>
                 )}
               </div>
             )}
+
+            {/* Generate Button */}
+            <div className="mt-6 p-4 bg-muted rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold mb-1">
+                    {file ? 'Ready to Generate Documentation' : 'Python File Required'}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {file 
+                      ? 'Your file will be analyzed using AI to create comprehensive documentation'
+                      : 'Please upload a Python (.py) file to get started. Excel and Word files are optional.'
+                    }
+                  </p>
+                  {wordFile && (
+                    <p className="text-sm text-blue-600 mt-1">
+                      📝 Update mode enabled - will enhance existing Word document
+                    </p>
+                  )}
+                </div>
+                <Button
+                  onClick={generateDocumentation}
+                  disabled={!file || isProcessing}
+                  size="lg"
+                  className="min-w-[200px]"
+                >
+                  {isProcessing ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="w-4 h-4 mr-2" />
+                      Generate Documentation
+                    </>
+                  )}
+                </Button>
+              </div>
+              
+              {isProcessing && (
+                <div className="mt-4">
+                  <Progress value={33} className="w-full" />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {progressMessage || 'Analyzing code and generating documentation...'}
+                  </p>
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
 
