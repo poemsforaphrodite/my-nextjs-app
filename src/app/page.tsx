@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, FileText, Download, CheckCircle, X, Heart } from 'lucide-react';
+import { Upload, FileText, Download, CheckCircle, X, Heart, MessageSquare, TrendingUp } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import ChatInterface from '@/components/chat-interface';
 import * as XLSX from 'xlsx';
 import { decodeSSE } from '@/lib/utils';
 import { extractSections, ExtractedSections } from '@/lib/docx-util';
@@ -34,6 +35,16 @@ interface Documentation {
     }[];
   }[];
   integratedRules: string[];
+  kpis: {
+    name: string;
+    definition: string;
+    calculationLogic: string;
+    businessPurpose: string;
+    dataSource: string;
+    frequency: string;
+    owner: string;
+    tags: string[];
+  }[];
 }
 
 // Documentation Viewer Component using shadcn/ui
@@ -41,16 +52,58 @@ const DocumentationViewer = ({
   documentation, 
   onDownload, 
   isDownloading,
-  filename 
+  filename,
+  onChatFeedback,
+  file
 }: { 
   documentation: Documentation;
   onDownload: () => void;
   isDownloading: boolean;
   filename: string;
+  onChatFeedback: (feedback: string) => void;
+  file: File | null;
 }) => {
+  const [isApproving, setIsApproving] = useState(false);
+  const [hasApproved, setHasApproved] = useState(false);
+  const [showChat, setShowChat] = useState(false);
+
   if (!documentation) return null;
 
-  const { description, tableGrain, dataSources, databricksTables, tableMetadata, integratedRules } = documentation;
+  const { description, tableGrain, dataSources, databricksTables, tableMetadata, integratedRules, kpis } = documentation;
+
+  const handleApprove = async () => {
+    setIsApproving(true);
+    try {
+      // Store only KPIs in RAG for future reference (as requested)
+      if (documentation.kpis && documentation.kpis.length > 0) {
+        const kpiResponse = await fetch('/api/knowledge-base/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: JSON.stringify(documentation.kpis),
+            filename: `${filename.replace('.py', '')}_kpis.json`,
+            contentType: 'kpi',
+            metadata: { 
+              generatedFrom: filename, 
+              timestamp: new Date().toISOString(),
+              totalKpis: documentation.kpis.length,
+              userApproved: true
+            }
+          })
+        });
+        if (!kpiResponse.ok) throw new Error('KPI ingestion failed');
+        console.log('KPIs approved and stored in knowledge base for future reference');
+      } else {
+        console.log('No KPIs to store');
+      }
+
+      setHasApproved(true);
+    } catch (error) {
+      console.error('KPI ingestion error:', error);
+    } finally {
+      setIsApproving(false);
+    }
+  };
 
   return (
     <div className="mt-8 space-y-6">
@@ -62,23 +115,50 @@ const DocumentationViewer = ({
               Comprehensive documentation generated from {filename}
             </CardDescription>
           </div>
-          <Button 
-            onClick={onDownload} 
-            disabled={isDownloading}
-            className="min-w-[150px]"
-          >
-            {isDownloading ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" />
-                Downloading...
-              </>
-            ) : (
-              <>
-                <Download className="w-4 h-4 mr-2" />
-                Download DOCX
-              </>
-            )}
-          </Button>
+          <div className="flex gap-2">
+            <Button 
+              onClick={onDownload} 
+              disabled={isDownloading}
+              className="min-w-[150px]"
+            >
+              {isDownloading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" />
+                  Downloading...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4 mr-2" />
+                  Download DOCX
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={handleApprove}
+              disabled={isApproving || hasApproved}
+              className="min-w-[150px]"
+              variant={hasApproved ? "secondary" : "default"}
+            >
+              {isApproving ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" />
+                  Approving...
+                </>
+              ) : hasApproved ? (
+                'KPIs Stored'
+              ) : (
+                'Store KPIs'
+              )}
+            </Button>
+            <Button
+              onClick={() => setShowChat(!showChat)}
+              variant="outline"
+              className="min-w-[150px]"
+            >
+              <MessageSquare className="w-4 h-4 mr-2" />
+              {showChat ? 'Hide Chat' : 'Chat & Feedback'}
+            </Button>
+          </div>
         </CardHeader>
       </Card>
 
@@ -194,6 +274,85 @@ const DocumentationViewer = ({
           </ul>
         </CardContent>
       </Card>
+
+      {/* 7. KPIs */}
+      {kpis && kpis.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5" />
+              7. Key Performance Indicators (KPIs)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-6">
+              {kpis.map((kpi, idx) => (
+                <div key={idx} className="border rounded-lg p-4 space-y-3">
+                  <div className="flex items-start justify-between">
+                    <h4 className="text-lg font-semibold">{kpi.name}</h4>
+                    <div className="flex gap-1">
+                      {kpi.tags?.map((tag, tagIdx) => (
+                        <Badge key={tagIdx} variant="secondary" className="text-xs">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Definition</p>
+                      <p className="text-sm">{kpi.definition}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Business Purpose</p>
+                      <p className="text-sm">{kpi.businessPurpose}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Calculation Logic</p>
+                      <p className="text-sm font-mono bg-muted p-2 rounded">{kpi.calculationLogic}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Data Source</p>
+                      <p className="text-sm">{kpi.dataSource}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Frequency</p>
+                      <p className="text-sm">{kpi.frequency}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Owner</p>
+                      <p className="text-sm">{kpi.owner}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Chat Interface */}
+      {showChat && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Chat & Feedback</CardTitle>
+            <CardDescription>
+              Ask questions about the documentation or provide feedback for improvements
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChatInterface
+              onMessage={(message) => onChatFeedback(message)}
+              className="h-96"
+              context={{
+                hasDocumentation: !!documentation,
+                filename: file?.name,
+                documentation: documentation as unknown as Record<string, unknown>
+              }}
+            />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };
@@ -208,6 +367,49 @@ export default function Home() {
   const [documentation, setDocumentation] = useState<Documentation | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [progressMessage, setProgressMessage] = useState<string>('');
+
+  const handleChatFeedback = async (feedback: string) => {
+    // Handle special chat commands
+    if (feedback === 'DOCUMENTATION_UPDATED') {
+      // This is a signal from the chat interface that documentation was updated
+      // The actual update will come through the chat interface's SSE stream
+      setSuccessMessage('Documentation has been updated based on your chat feedback!');
+      return;
+    }
+
+    // For direct feedback calls (from the original chat button), use the old method
+    if (!file || !documentation) return;
+    
+    try {
+      // Read the file content
+      const fileContent = await file.text();
+      
+      // Send feedback with current documentation for regeneration
+      const response = await fetch('/api/agents/regenerate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          pythonCode: fileContent,
+          filename: file.name,
+          currentDocumentation: documentation,
+          userFeedback: feedback
+        }),
+      });
+
+      if (response.ok) {
+        const updatedDoc = await response.json();
+        setDocumentation(updatedDoc);
+        setSuccessMessage('Documentation updated based on your feedback!');
+      } else {
+        throw new Error('Failed to regenerate documentation');
+      }
+    } catch (error) {
+      console.error('Feedback processing error:', error);
+      setError('Failed to process feedback');
+    }
+  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: { 
@@ -291,6 +493,25 @@ export default function Home() {
           const documentationResult = await pollForJobCompletion(responseData.jobId);
           setDocumentation(documentationResult);
           setSuccessMessage(`Documentation generated successfully! You can view it below or download it as a DOCX file.`);
+          
+          // Store only KPIs in RAG for retrieval (as requested)
+          if (documentationResult.kpis && documentationResult.kpis.length > 0) {
+            fetch('/api/knowledge-base/ingest', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                content: JSON.stringify(documentationResult.kpis),
+                filename: `${file!.name.replace('.py', '')}_kpis.json`,
+                contentType: 'kpi',
+                metadata: { 
+                  generatedFrom: file!.name, 
+                  timestamp: new Date().toISOString(),
+                  totalKpis: documentationResult.kpis.length,
+                  autoStored: true
+                }
+              })
+            }).catch(error => console.error('KPI auto-ingestion error:', error));
+          }
         } else {
           // This shouldn't happen with current implementation, but handle gracefully
           throw new Error('Unexpected response format: expected streaming or polling job');
@@ -403,9 +624,27 @@ export default function Home() {
     if (!documentationResult) {
       throw new Error(`No documentation received from OpenAI (processed ${frameCount} frames, ${errorCount} errors)`);
     }
-
     setDocumentation(documentationResult);
     setSuccessMessage(`Documentation generated successfully! You can view it below or download it as a DOCX file.`);
+    
+    // Store only KPIs in RAG for retrieval (as requested)
+    if (documentationResult.kpis && documentationResult.kpis.length > 0) {
+      fetch('/api/knowledge-base/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: JSON.stringify(documentationResult.kpis),
+          filename: `${file!.name.replace('.py', '')}_kpis.json`,
+          contentType: 'kpi',
+          metadata: { 
+            generatedFrom: file!.name, 
+            timestamp: new Date().toISOString(),
+            totalKpis: documentationResult.kpis.length,
+            autoStored: true
+          }
+        })
+      }).catch(error => console.error('KPI auto-ingestion error:', error));
+    }
   };
 
   const downloadDocumentation = async () => {
@@ -658,6 +897,8 @@ export default function Home() {
             onDownload={downloadDocumentation} 
             isDownloading={isDownloading}
             filename={file.name}
+            onChatFeedback={handleChatFeedback}
+            file={file}
           />
         )}
 

@@ -18,6 +18,16 @@ export interface Documentation {
     }[];
   }[];
   integratedRules: string[];
+  kpis?: {
+    name: string;
+    definition: string;
+    calculationLogic: string;
+    businessPurpose: string;
+    dataSource: string;
+    frequency: string;
+    owner: string;
+    tags: string[];
+  }[];
 }
 
 // Type for partial documentation updates in streaming mode
@@ -192,6 +202,31 @@ export function createDocxFromDocumentation(doc: Documentation, filename: string
   children.push(createSectionHeader('6. Integrated Rules'));
   if (doc.integratedRules?.length) doc.integratedRules.forEach((r) => children.push(createBullet(r)));
   else children.push(createParagraph('No rules described.'));
+
+  // 7. KPIs Section
+  if (doc.kpis && doc.kpis.length > 0) {
+    children.push(createSectionHeader('7. Key Performance Indicators (KPIs)'));
+    
+    doc.kpis.forEach((kpi, index) => {
+      children.push(_createSubHeader(`7.${index + 1} ${kpi.name}`));
+      
+      // Create KPI details table
+      const kpiData = [
+        ['Definition', kpi.definition],
+        ['Business Purpose', kpi.businessPurpose], 
+        ['Calculation Logic', kpi.calculationLogic],
+        ['Data Source', kpi.dataSource],
+        ['Frequency', kpi.frequency],
+        ['Owner', kpi.owner],
+        ['Tags', kpi.tags.join(', ')]
+      ];
+
+      children.push(createStyledTable(kpiData));
+
+      // Add spacing between KPIs
+      children.push(createParagraph(''));
+    });
+  }
 
   return new Document({
     sections: [

@@ -8,16 +8,33 @@ This is a Next.js 15 application that generates professional documentation for P
 
 ## Key Architecture
 
+### Agentic RAG System
+The application uses a multi-agent architecture with RAG (Retrieval-Augmented Generation) for enhanced documentation quality:
+
+1. **Orchestrator Agent** (`src/lib/agents/orchestrator.ts`): Coordinates multi-agent workflows
+2. **Writer Agent** (`src/lib/agents/writer.ts`): Generates documentation with RAG context
+3. **Critic Agent** (`src/lib/agents/critic.ts`): Reviews and provides feedback for iterative improvement
+4. **Router Agent** (`src/lib/agents/router.ts`): Classifies queries and routes to appropriate agents
+5. **Answer Agent** (`src/lib/agents/answer.ts`): Handles Q&A with knowledge base retrieval
+
 ### Frontend-Backend Flow
 1. **File Upload** (`src/app/page.tsx`): React component with dropzone for Python files and optional Excel files
-2. **AI Processing** (`src/app/api/openai-proxy/route.ts`): Streams OpenAI responses using Server-Sent Events
-3. **Document Generation** (`src/app/api/generate-docs/route.ts`): Creates DOCX files from parsed documentation
-4. **Document Utilities** (`src/lib/docx-util.ts`): Handles Word document formatting and structure
+2. **Agent Orchestration** (`src/app/api/agents/orchestrate/route.ts`): Multi-agent workflow coordination
+3. **Chat Interface** (`src/app/api/agents/chat/route.ts`): Interactive Q&A with knowledge base
+4. **Knowledge Base** (`src/app/api/knowledge-base/`): Document ingestion and semantic search
+5. **Document Generation** (`src/app/api/generate-docs/route.ts`): Creates DOCX files from structured documentation
+6. **Document Utilities** (`src/lib/docx-util.ts`): Handles Word document formatting and structure
 
 ### Data Flow
-- Python file uploaded → OpenAI analysis → Structured JSON documentation → DOCX generation → Download
-- Supports Excel file upload for additional context in documentation generation
-- Uses streaming responses to handle long-running OpenAI operations
+- **Documentation Generation**: Python file → Orchestrator → Writer Agent (with RAG) → Critic Agent → Refined Documentation → DOCX
+- **Q&A Flow**: User question → Router Agent → Answer Agent (with RAG) → Response with sources
+- **Knowledge Base**: Documents → Chunking → Embedding → Vector Storage → Retrieval for RAG
+
+### Vector Database Integration
+- **Pinecone**: Vector storage for documents, code, and Q&A pairs
+- **OpenAI Embeddings**: text-embedding-3-small for vector generation
+- **Chunking Strategy**: Intelligent chunking preserving code structure and document sections
+- **Retrieval**: Hybrid search across multiple content types with relevance scoring
 
 ## Development Commands
 
@@ -36,6 +53,18 @@ npm run lint
 
 # Run tests
 npm run test
+
+# Run end-to-end tests
+npm run test:e2e
+
+# Run E2E tests with UI
+npm run test:e2e:ui
+
+# Run all tests (unit + E2E)
+npm run test:all
+
+# Manual API testing
+npm run test:api-manual
 ```
 
 ## Environment Configuration
@@ -43,18 +72,22 @@ npm run test
 Required environment variables:
 - `OPENAI_API_KEY`: OpenAI API key with O3-mini model access
 - `OPENAI_MODEL`: (Optional) OpenAI model to use (defaults to gpt-4o-mini, use o3-2025-04-16 for detailed analysis)
+- `PINECONE_API_KEY`: Pinecone API key for vector database operations
 
 ## Testing
 
-- **Framework**: Vitest with Node environment
+- **Unit Tests**: Vitest with Node environment
+- **E2E Tests**: Playwright with Chromium browser
 - **Test files**: `/tests/` directory
 - **Coverage**: Includes real Python file testing and DOCX generation validation
 - **API Testing**: Integration tests for OpenAI proxy endpoint (skipped without valid API key)
+- **Manual API Testing**: Dedicated script for manual API endpoint verification
 
 ## Key Technical Details
 
 ### AI Model Configuration
-- Uses OpenAI's `o3-2025-04-16` model
+- Primary model: OpenAI's `o3-2025-04-16` for detailed analysis
+- Fallback model: `gpt-4o-mini` for faster responses (default)
 - Configured for JSON response format with specific documentation template
 - Streaming responses to handle serverless function timeouts
 
@@ -84,7 +117,7 @@ The application handles Vercel's serverless function timeout using:
 - Set `OPENAI_MODEL=o3-2025-04-16` for detailed analysis or `gpt-4o-mini` for faster responses
 
 ### OpenAI Model Access
-Requires access to OpenAI's O3-mini model. The system prompts are specifically tuned for business documentation of data pipeline code.
+Requires access to OpenAI's o3-2025-04-16 model for detailed analysis. The system prompts are specifically tuned for business documentation of data pipeline code.
 
 ## Type Definitions
 

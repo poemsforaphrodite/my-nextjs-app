@@ -40,6 +40,16 @@ export interface Documentation {
     }[];
   }[]; // Metadata grouped by table
   integratedRules: string[]; // Bullet list describing the data transformation / business rules applied
+  kpis: {
+    name: string;
+    definition: string;
+    calculationLogic: string;
+    businessPurpose: string;
+    dataSource: string;
+    frequency: string;
+    owner: string;
+    tags: string[];
+  }[];
 }
 
 // Documentation template moved to openai-proxy route
