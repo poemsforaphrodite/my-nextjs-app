@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { chunkPythonCode, chunkDocumentation, chunkQA, chunkKPI, DocumentChunk } from '@/lib/chunking';
 import { embedAndStoreChunks } from '@/lib/embeddings';
 
-export const maxDuration = 60; // 60 seconds for document processing
+export const maxDuration = 120; // 120 seconds for document processing
 
 export async function POST(request: NextRequest) {
   try {

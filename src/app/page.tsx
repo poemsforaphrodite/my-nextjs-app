@@ -377,6 +377,21 @@ export default function Home() {
       return;
     }
 
+    // Handle documentation updates with actual documentation data
+    try {
+      const parsedFeedback = JSON.parse(feedback);
+      if (parsedFeedback.type === 'DOCUMENTATION_UPDATED' && parsedFeedback.documentation) {
+        console.log('Real-time documentation update received:', parsedFeedback.documentation);
+        setDocumentation(parsedFeedback.documentation);
+        setSuccessMessage('Documentation has been updated based on your chat feedback!');
+        // Clear any existing errors
+        setError('');
+        return;
+      }
+    } catch {
+      // Not a JSON message, continue with normal processing
+    }
+
     // For direct feedback calls (from the original chat button), use the old method
     if (!file || !documentation) return;
     
@@ -494,24 +509,8 @@ export default function Home() {
           setDocumentation(documentationResult);
           setSuccessMessage(`Documentation generated successfully! You can view it below or download it as a DOCX file.`);
           
-          // Store only KPIs in RAG for retrieval (as requested)
-          if (documentationResult.kpis && documentationResult.kpis.length > 0) {
-            fetch('/api/knowledge-base/ingest', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                content: JSON.stringify(documentationResult.kpis),
-                filename: `${file!.name.replace('.py', '')}_kpis.json`,
-                contentType: 'kpi',
-                metadata: { 
-                  generatedFrom: file!.name, 
-                  timestamp: new Date().toISOString(),
-                  totalKpis: documentationResult.kpis.length,
-                  autoStored: true
-                }
-              })
-            }).catch(error => console.error('KPI auto-ingestion error:', error));
-          }
+          // Note: Automatic KPI storage has been disabled. 
+          // KPIs are only stored when user explicitly clicks "Store KPIs" button.
         } else {
           // This shouldn't happen with current implementation, but handle gracefully
           throw new Error('Unexpected response format: expected streaming or polling job');
@@ -627,24 +626,8 @@ export default function Home() {
     setDocumentation(documentationResult);
     setSuccessMessage(`Documentation generated successfully! You can view it below or download it as a DOCX file.`);
     
-    // Store only KPIs in RAG for retrieval (as requested)
-    if (documentationResult.kpis && documentationResult.kpis.length > 0) {
-      fetch('/api/knowledge-base/ingest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: JSON.stringify(documentationResult.kpis),
-          filename: `${file!.name.replace('.py', '')}_kpis.json`,
-          contentType: 'kpi',
-          metadata: { 
-            generatedFrom: file!.name, 
-            timestamp: new Date().toISOString(),
-            totalKpis: documentationResult.kpis.length,
-            autoStored: true
-          }
-        })
-      }).catch(error => console.error('KPI auto-ingestion error:', error));
-    }
+    // Note: Automatic KPI storage has been disabled. 
+    // KPIs are only stored when user explicitly clicks "Store KPIs" button.
   };
 
   const downloadDocumentation = async () => {

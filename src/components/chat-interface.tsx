@@ -65,9 +65,13 @@ export default function ChatInterface({ onMessage, className = '', context }: Ch
       timestamp: Date.now()
     };
 
+    const currentInput = input; // Store current input before clearing
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+
+    // Track if documentation was updated during this request
+    let documentationUpdated = false;
 
     try {
       const response = await fetch('/api/agents/chat', {
@@ -77,7 +81,7 @@ export default function ChatInterface({ onMessage, className = '', context }: Ch
           'Accept': 'text/event-stream'
         },
         body: JSON.stringify({
-          query: input,
+          query: currentInput,
           context: {
             sessionId: 'demo-session',
             conversationHistory: messages.slice(-5), // Last 5 messages for context
@@ -145,8 +149,15 @@ export default function ChatInterface({ onMessage, className = '', context }: Ch
                 assistantMessage.content = parsed.message + '\n\n' + parsed.suggestion;
               } else if (parsed.type === 'documentation_updated') {
                 assistantMessage.content += '\n\n📄 Documentation has been updated based on your feedback!';
-                // Optionally trigger a callback to update the main page
-                if (onMessage) {
+                // Set flag to prevent final onMessage call
+                documentationUpdated = true;
+                // Trigger callback to update the main page with new documentation
+                if (onMessage && parsed.documentation) {
+                  onMessage(JSON.stringify({
+                    type: 'DOCUMENTATION_UPDATED',
+                    documentation: parsed.documentation
+                  }));
+                } else if (onMessage) {
                   onMessage('DOCUMENTATION_UPDATED');
                 }
               } else if (parsed.type === 'requires_upload') {
@@ -176,8 +187,9 @@ export default function ChatInterface({ onMessage, className = '', context }: Ch
       setIsLoading(false);
     }
 
-    if (onMessage) {
-      onMessage(input);
+    // Only call onMessage with input if documentation wasn't updated
+    if (onMessage && !documentationUpdated) {
+      onMessage(currentInput);
     }
   };
 

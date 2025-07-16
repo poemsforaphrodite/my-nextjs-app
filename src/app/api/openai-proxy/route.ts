@@ -18,6 +18,31 @@ interface StreamChunk {
   choices: { delta?: { content?: string } }[];
 }
 
+interface KPISearchResult {
+  searchedKPI: string;
+  match: {
+    id: string;
+    score?: number;
+    metadata?: {
+      content?: string;
+      [key: string]: unknown;
+    };
+  };
+  score: number;
+}
+
+interface KPIObject {
+  name: string;
+  definition?: string;
+  calculationLogic?: string;
+  businessPurpose?: string;
+  dataSource?: string;
+  frequency?: string;
+  owner?: string;
+  tags?: string[];
+  [key: string]: unknown;
+}
+
 // Template copied from server-side file to keep consistent
 const DOCUMENTATION_TEMPLATE = `
 You are provided with a Python script. Your task is to return extremely detailed documentation in a SINGLE JSON object (no additional text). The JSON MUST follow the exact structure below and every field must be present.
@@ -110,6 +135,266 @@ Additional Guidance:
 - IDENTIFY AND EXTRACT ALL KPIs, METRICS, AND CALCULATIONS FROM THE CODE. Look for aggregations, ratios, percentages, counts, sums, averages, and any business metrics being calculated.
 `;
 
+// Function to extract KPI names from Python code
+async function extractKPINames(pythonCode: string): Promise<string[]> {
+  const extractionPrompt = `You are a KPI extraction expert. Analyze the provided Python code and identify ALL potential KPI names, metrics, and business measures.
+
+Python Code Analysis:
+\`\`\`python
+${pythonCode}
+\`\`\`
+
+Look for these types of business metrics in the code:
+- Revenue calculations (gross_rev, net_rev, total_revenue)
+- Count operations (COUNT, SUM, total_*) 
+- Error tracking (error_rate, failure_count)
+- Performance metrics (response_time, throughput)
+- User/patient metrics (patient_count, engagement)
+- Conversion calculations (conversion_rate, success_rate)
+- Shipment/delivery metrics (shipments, deliveries)
+- Financial metrics (profit, cost, margin)
+
+Extract business-friendly KPI names from variables, functions, and calculations.
+
+You MUST return a JSON object with a "kpis" array. If no KPIs are found, return an empty array:
+{
+  "kpis": ["Total Revenue", "Error Rate", "Patient Engagement Count"]
+}
+
+OR if no KPIs found:
+{
+  "kpis": []
+}
+
+Return only the JSON object, no additional text.`;
+
+  try {
+    console.log('[KPI Extraction] Using model:', process.env.OPENAI_MODEL || 'gpt-4o-mini');
+    console.log('[KPI Extraction] Python code length:', pythonCode.length);
+    console.log('[KPI Extraction] Python code preview:', pythonCode.substring(0, 500) + '...');
+    
+    const response = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a KPI extraction expert. Analyze code and extract business metrics and KPIs.'
+        },
+        {
+          role: 'user',
+          content: extractionPrompt
+        }
+      ],
+      max_completion_tokens: 1000
+    });
+
+    const responseContent = response.choices[0].message.content || '[]';
+    console.log('[KPI Extraction] Model used:', response.model);
+    console.log('[KPI Extraction] Raw response:', responseContent);
+    console.log('[KPI Extraction] Response length:', responseContent.length);
+    
+    // Try to parse as JSON first
+    let result;
+    try {
+      result = JSON.parse(responseContent);
+      console.log('[KPI Extraction] Parsed as JSON:', result);
+    } catch {
+      console.log('[KPI Extraction] Not valid JSON, treating as text response');
+      
+      // Extract KPIs from text response
+      const kpiMatches = responseContent.match(/["']([^"']*(?:revenue|rate|count|total|error|conversion|shipment|patient|engagement|demand|profit|cost|margin|success|failure|throughput|latency|dispense|finance|analytics)[^"']*)["']/gi);
+      if (kpiMatches) {
+        const extractedKPIs = kpiMatches.map(match => match.replace(/["']/g, ''));
+        console.log('[KPI Extraction] Extracted KPIs from text:', extractedKPIs);
+        return extractedKPIs;
+      }
+      
+      // Try to extract lines that look like KPI names
+      const lines = responseContent.split('\n');
+      const kpiLines = lines.filter(line => 
+        line.toLowerCase().includes('revenue') || 
+        line.toLowerCase().includes('rate') ||
+        line.toLowerCase().includes('count') ||
+        line.toLowerCase().includes('total') ||
+        line.toLowerCase().includes('error') ||
+        line.toLowerCase().includes('shipment') ||
+        line.toLowerCase().includes('patient') ||
+        line.toLowerCase().includes('engagement')
+      );
+      
+      if (kpiLines.length > 0) {
+        console.log('[KPI Extraction] Found KPI lines:', kpiLines);
+        return kpiLines.map(line => line.trim().replace(/^[-*•]\s*/, ''));
+      }
+      
+      // Final fallback
+      console.log('[KPI Extraction] No KPIs found in text, using fallback pattern matching...');
+      const fallbackKPIs = extractKPIsFromCodePatterns(pythonCode);
+      if (fallbackKPIs.length > 0) {
+        console.log('[KPI Extraction] Text fallback found KPIs:', fallbackKPIs);
+        return fallbackKPIs;
+      }
+      
+      return [];
+    }
+    
+    // Handle both array format and object format responses
+    if (Array.isArray(result)) {
+      console.log('[KPI Extraction] Found array format, returning:', result);
+      
+      // If the array is empty, try fallback pattern matching
+      if (result.length === 0) {
+        console.log('[KPI Extraction] OpenAI returned empty array, trying fallback pattern matching...');
+        const fallbackKPIs = extractKPIsFromCodePatterns(pythonCode);
+        if (fallbackKPIs.length > 0) {
+          console.log('[KPI Extraction] Fallback found KPIs:', fallbackKPIs);
+          return fallbackKPIs;
+        }
+      }
+      
+      return result;
+    } else if (result && typeof result === 'object' && result.kpis && Array.isArray(result.kpis)) {
+      console.log('[KPI Extraction] Found object format with kpis array:', result.kpis);
+      
+      // If the kpis array is empty, try fallback pattern matching
+      if (result.kpis.length === 0) {
+        console.log('[KPI Extraction] OpenAI returned empty kpis array, trying fallback pattern matching...');
+        const fallbackKPIs = extractKPIsFromCodePatterns(pythonCode);
+        if (fallbackKPIs.length > 0) {
+          console.log('[KPI Extraction] Fallback found KPIs:', fallbackKPIs);
+          return fallbackKPIs;
+        }
+      }
+      
+      return result.kpis;
+    } else if (result && typeof result === 'object' && Object.keys(result).length === 0) {
+      console.log('[KPI Extraction] Found empty object, trying fallback pattern matching...');
+      const fallbackKPIs = extractKPIsFromCodePatterns(pythonCode);
+      if (fallbackKPIs.length > 0) {
+        console.log('[KPI Extraction] Fallback found KPIs:', fallbackKPIs);
+        return fallbackKPIs;
+      }
+      return [];
+    } else {
+      console.warn('[KPI Extraction] Unexpected response format:', result);
+      console.warn('[KPI Extraction] Result type:', typeof result);
+      console.warn('[KPI Extraction] Result keys:', result && typeof result === 'object' ? Object.keys(result) : 'N/A');
+      
+      // Try to extract KPIs from the raw response if it's a string
+      if (typeof result === 'string') {
+        console.log('[KPI Extraction] Attempting to extract KPIs from string response');
+        const kpiMatches = result.match(/["']([^"']*(?:revenue|rate|count|total|error|conversion|shipment|patient|engagement)[^"']*)["']/gi);
+        if (kpiMatches) {
+          const extractedKPIs = kpiMatches.map(match => match.replace(/["']/g, ''));
+          console.log('[KPI Extraction] Extracted KPIs from string:', extractedKPIs);
+          return extractedKPIs;
+        }
+      }
+      
+      // Final fallback
+      console.log('[KPI Extraction] Trying final fallback pattern matching...');
+      const fallbackKPIs = extractKPIsFromCodePatterns(pythonCode);
+      if (fallbackKPIs.length > 0) {
+        console.log('[KPI Extraction] Final fallback found KPIs:', fallbackKPIs);
+        return fallbackKPIs;
+      }
+      
+      return [];
+    }
+  } catch (error) {
+    console.error('Error extracting KPI names:', error);
+    
+    // Fallback: Simple pattern matching for common KPIs
+    console.log('[KPI Extraction] Attempting fallback pattern matching...');
+    const fallbackKPIs = extractKPIsFromCodePatterns(pythonCode);
+    if (fallbackKPIs.length > 0) {
+      console.log('[KPI Extraction] Fallback found KPIs:', fallbackKPIs);
+      return fallbackKPIs;
+    }
+    
+    return [];
+  }
+}
+
+// Fallback function to extract KPIs using simple pattern matching
+function extractKPIsFromCodePatterns(pythonCode: string): string[] {
+  const kpis: string[] = [];
+  const codeLines = pythonCode.toLowerCase();
+  
+  // Common patterns to look for
+  const patterns = [
+    { pattern: /revenue|gross_rev|net_rev/, kpi: 'Total Revenue' },
+    { pattern: /error|failure|exception/, kpi: 'Error Rate' },
+    { pattern: /conversion|convert/, kpi: 'Conversion Rate' },
+    { pattern: /shipment|ship_|delivery/, kpi: 'Total Shipments' },
+    { pattern: /patient|engagement/, kpi: 'Patient Engagement Count' },
+    { pattern: /total_demand|demand/, kpi: 'Total Demand' },
+    { pattern: /count\(|sum\(|total_/, kpi: 'Total Count' },
+    { pattern: /response_time|latency/, kpi: 'Response Time' },
+    { pattern: /throughput|requests_per/, kpi: 'Throughput' },
+    { pattern: /success_rate|success/, kpi: 'Success Rate' }
+  ];
+  
+  for (const { pattern, kpi } of patterns) {
+    if (pattern.test(codeLines) && !kpis.includes(kpi)) {
+      kpis.push(kpi);
+    }
+  }
+  
+  return kpis;
+}
+
+// Function to search for specific KPI definitions in the vector database
+async function searchForKPIDefinitions(kpiNames: string[]): Promise<KPISearchResult[]> {
+  const kpiDefinitions: KPISearchResult[] = [];
+  
+  for (const kpiName of kpiNames) {
+    try {
+      // Search for each KPI name across all files
+      const searchResult = await searchKnowledgeBase(
+        kpiName,
+        {
+          filter: { contentType: 'kpi' },
+          topK: 3 // Get top 3 matches for each KPI
+        }
+      );
+      
+      if (searchResult.matches && searchResult.matches.length > 0) {
+        // Find the best match for this KPI
+        const bestMatch = searchResult.matches.find(match => {
+          const content = String(match.metadata?.content || '');
+          const parsedContent = safeJsonParse(content);
+          
+          if (Array.isArray(parsedContent)) {
+            // Handle array of KPIs
+            return parsedContent.some((kpi: KPIObject) => 
+              kpi.name && kpi.name.toLowerCase().includes(kpiName.toLowerCase())
+            );
+          } else if (parsedContent && typeof parsedContent === 'object' && 'name' in parsedContent) {
+            // Handle single KPI object
+            const kpiObj = parsedContent as KPIObject;
+            return kpiObj.name.toLowerCase().includes(kpiName.toLowerCase());
+          }
+          
+          return false;
+        });
+        
+        if (bestMatch) {
+          kpiDefinitions.push({
+            searchedKPI: kpiName,
+            match: bestMatch,
+            score: bestMatch.score || 0
+          });
+        }
+      }
+    } catch (error) {
+      console.error(`Error searching for KPI "${kpiName}":`, error);
+    }
+  }
+  
+  return kpiDefinitions;
+}
+
 export const maxDuration = 300; // Increase max duration to 5 minutes for large files
 
 export async function POST(request: NextRequest) {
@@ -124,26 +409,53 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 });
     }
 
-    // Search for existing KPI definitions for this filename or similar
-    const existingKPIs = await searchKnowledgeBase(
-      `KPI definitions ${filename}`,
-      {
-        filter: { contentType: 'kpi' },
-        topK: 10
-      }
-    );
+    // Two-pass KPI approach: First extract KPI names, then search for their definitions
+    console.log('[openai-proxy] Step 1: Extracting KPI names from code...');
+    const extractedKPINames = await extractKPINames(pythonCode);
+    console.log('[openai-proxy] Extracted KPI names:', extractedKPINames);
+    
+    console.log('[openai-proxy] Step 2: Searching for KPI definitions in vector database...');
+    const kpiDefinitions = await searchForKPIDefinitions(extractedKPINames);
+    console.log('[openai-proxy] Found KPI definitions:', kpiDefinitions.length);
 
     // Build user prompt with optional Excel content and existing DOCX sections
     let userContent = `${DOCUMENTATION_TEMPLATE}\n\nPython file: ${filename}\n\nPython Code:\n\u0060\u0060\u0060python\n${pythonCode}\n\u0060\u0060\u0060`;
     if (existingExcel) {
       userContent += `\n\nExisting Excel Data (CSV format of first sheet):\n\u0060\u0060\u0060csv\n${existingExcel}\n\u0060\u0060\u0060`;
     }
-    if (existingKPIs.matches && existingKPIs.matches.length > 0) {
+    if (kpiDefinitions.length > 0) {
       userContent += `\n\nExisting KPI Definitions from Knowledge Base:\n`;
-      existingKPIs.matches.forEach((match, index) => {
-        userContent += `\nKPI ${index + 1}:\n${match.metadata?.content || 'No content available'}\n`;
+      kpiDefinitions.forEach((kpiDef, index) => {
+        const content = String(kpiDef.match.metadata?.content || '');
+        const parsedContent = safeJsonParse(content);
+        
+        if (Array.isArray(parsedContent)) {
+          // Handle array of KPIs - find the matching one
+          const matchingKPI = parsedContent.find((kpi: KPIObject) => 
+            kpi.name && kpi.name.toLowerCase().includes(kpiDef.searchedKPI.toLowerCase())
+          );
+          if (matchingKPI) {
+            userContent += `\nKPI ${index + 1} - ${kpiDef.searchedKPI}:\n${JSON.stringify(matchingKPI, null, 2)}\n`;
+          }
+        } else if (parsedContent && typeof parsedContent === 'object' && 'name' in parsedContent) {
+          // Handle single KPI object
+          userContent += `\nKPI ${index + 1} - ${kpiDef.searchedKPI}:\n${JSON.stringify(parsedContent, null, 2)}\n`;
+        } else {
+          // Fallback to raw content
+          userContent += `\nKPI ${index + 1} - ${kpiDef.searchedKPI}:\n${content}\n`;
+        }
       });
-      userContent += `\nInstructions: When generating KPIs, reuse existing definitions where applicable and maintain consistency in naming and calculation logic.`;
+      userContent += `\n\nInstructions: When generating KPIs, PRIORITIZE reusing the existing definitions above for matching KPIs. For KPIs that match the existing definitions, use the EXACT same:
+- name
+- definition 
+- calculationLogic
+- businessPurpose
+- dataSource
+- frequency
+- owner
+- tags
+
+Only create new KPI definitions for metrics not found in the existing definitions.`;
     }
     if (existingDocxSections) {
       userContent += `\n\nExisting Word Document Sections:\n`;

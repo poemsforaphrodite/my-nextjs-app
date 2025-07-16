@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { searchKnowledgeBase } from '@/lib/pinecone';
 
 export const maxDuration = 60;
 
@@ -27,10 +26,8 @@ export async function POST(request: NextRequest) {
     // For chat mode, we work with just the existing documentation
     if (chatMode && !pythonCode) {
       return await handleChatModeRegeneration({
-        filename,
         currentDocumentation,
-        userFeedback,
-        request
+        userFeedback
       });
     }
 
@@ -40,15 +37,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    // Search for existing KPI definitions that might be relevant
-    const existingKPIs = await searchKnowledgeBase(
-      `KPI definitions ${filename}`,
-      {
-        filter: { contentType: 'kpi' },
-        topK: 10
-      }
-    );
 
     // Create regeneration prompt
     const regenerationPrompt = `
@@ -65,16 +53,13 @@ PYTHON CODE:
 ${pythonCode}
 \`\`\`
 
-EXISTING KPI DEFINITIONS FROM KNOWLEDGE BASE:
-${existingKPIs.matches?.map(match => match.metadata?.content).join('\n\n') || 'No existing KPI definitions found'}
-
 Instructions:
 1. Address the user's feedback by modifying the relevant sections
 2. Maintain the exact JSON structure from the original documentation
-3. For KPIs, use existing definitions from the knowledge base when available
-4. If creating new KPIs, follow the established patterns and naming conventions
-5. Ensure all fields are populated (use "N/A" if unknown)
-6. Return only valid JSON - no markdown, comments, or additional text
+3. If creating new KPIs, follow the established patterns and naming conventions
+4. Ensure all fields are populated (use "N/A" if unknown)
+5. Return only valid JSON - no markdown, comments, or additional text
+6. IMPORTANT: Apply the user's feedback exactly as provided - if they specify a formula change, update the calculationLogic field accordingly
 
 JSON FORMAT (update based on feedback):
 {
@@ -116,12 +101,12 @@ JSON FORMAT (update based on feedback):
 `;
 
     const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      model: process.env.OPENAI_MODEL || 'o4-mini-2025-04-16',
       response_format: { type: 'json_object' },
       messages: [
         {
           role: 'system',
-          content: 'You are a technical documentation expert. Update documentation based on user feedback while maintaining consistency and using existing KPI definitions when available.'
+          content: 'You are a technical documentation expert. Update documentation based on user feedback while maintaining consistency and using existing KPI definitions when available. Pay special attention to formula changes in calculationLogic fields for KPIs.'
         },
         {
           role: 'user',
@@ -132,43 +117,8 @@ JSON FORMAT (update based on feedback):
 
     const updatedDocumentation = JSON.parse(completion.choices[0].message.content || '{}');
 
-    // Get the base URL for internal API calls
-    const baseUrl = `${request.nextUrl.protocol}//${request.nextUrl.host}`;
-
-    // Store updated KPIs in knowledge base for future reference
-    if (updatedDocumentation.kpis && updatedDocumentation.kpis.length > 0) {
-      await fetch(`${baseUrl}/api/knowledge-base/ingest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: JSON.stringify(updatedDocumentation.kpis),
-          filename: `${filename.replace('.py', '')}_kpis.json`,
-          contentType: 'kpi',
-          metadata: { 
-            generatedFrom: filename, 
-            timestamp: new Date().toISOString(),
-            userFeedback: userFeedback
-          }
-        })
-      });
-    }
-
-    // Store updated documentation
-    await fetch(`${baseUrl}/api/knowledge-base/ingest`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content: JSON.stringify(updatedDocumentation),
-        filename: `${filename.replace('.py', '')}_documentation_updated.json`,
-        contentType: 'documentation',
-        metadata: { 
-          generatedFrom: filename, 
-          timestamp: new Date().toISOString(),
-          updatedBy: 'user_feedback',
-          originalFeedback: userFeedback
-        }
-      })
-    });
+    // Note: Automatic KPI storage has been disabled. 
+    // KPIs are only stored when user explicitly clicks "Store KPIs" button.
 
     return NextResponse.json(updatedDocumentation);
 
@@ -183,26 +133,13 @@ JSON FORMAT (update based on feedback):
 
 // Handle chat mode regeneration (without Python code)
 async function handleChatModeRegeneration({
-  filename,
   currentDocumentation,
-  userFeedback,
-  request
+  userFeedback
 }: {
-  filename: string;
   currentDocumentation: Record<string, unknown>;
   userFeedback: string;
-  request: NextRequest;
 }) {
   try {
-    // Search for existing KPI definitions
-    const existingKPIs = await searchKnowledgeBase(
-      `KPI definitions ${filename}`,
-      {
-        filter: { contentType: 'kpi' },
-        topK: 10
-      }
-    );
-
     // Create a simplified regeneration prompt focused on documentation improvement
     const improvementPrompt = `
 You are tasked with improving existing documentation based on user feedback. You must return a SINGLE JSON object following the exact structure of the current documentation.
@@ -213,16 +150,13 @@ ${JSON.stringify(currentDocumentation, null, 2)}
 USER FEEDBACK:
 ${userFeedback}
 
-EXISTING KPI DEFINITIONS FROM KNOWLEDGE BASE:
-${existingKPIs.matches?.map(match => match.metadata?.content).join('\n\n') || 'No existing KPI definitions found'}
-
 Instructions:
 1. Apply the user's feedback to improve the relevant sections
-2. For KPIs, use existing definitions from the knowledge base when available
-3. Maintain the exact JSON structure from the current documentation
-4. Focus on enhancing definitions, calculations, and business purposes
-5. If the feedback mentions specific improvements (like "uptime percentage"), enhance those areas
-6. Return only valid JSON - no markdown, comments, or additional text
+2. Maintain the exact JSON structure from the current documentation
+3. Focus on enhancing definitions, calculations, and business purposes
+4. If the feedback mentions specific improvements, enhance those areas
+5. Return only valid JSON - no markdown, comments, or additional text
+6. IMPORTANT: Apply the user's feedback exactly as provided - if they specify a formula change, update the calculationLogic field accordingly
 
 Ensure all fields are populated and the structure matches exactly:
 {
@@ -269,7 +203,7 @@ Ensure all fields are populated and the structure matches exactly:
       messages: [
         {
           role: 'system',
-          content: 'You are a documentation improvement expert. Update documentation based on user feedback while maintaining structure and using existing KPI definitions when available.'
+          content: 'You are a documentation improvement expert. Update documentation based on user feedback while maintaining structure and using existing KPI definitions when available. Pay special attention to formula changes in calculationLogic fields for KPIs.'
         },
         {
           role: 'user',
@@ -280,27 +214,8 @@ Ensure all fields are populated and the structure matches exactly:
 
     const updatedDocumentation = JSON.parse(completion.choices[0].message.content || '{}');
 
-    // Get the base URL for internal API calls
-    const baseUrl = `${request.nextUrl.protocol}//${request.nextUrl.host}`;
-
-    // Store updated KPIs if they exist
-    if (updatedDocumentation.kpis && updatedDocumentation.kpis.length > 0) {
-      await fetch(`${baseUrl}/api/knowledge-base/ingest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: JSON.stringify(updatedDocumentation.kpis),
-          filename: `${filename.replace('.py', '')}_kpis_updated.json`,
-          contentType: 'kpi',
-          metadata: { 
-            generatedFrom: filename, 
-            timestamp: new Date().toISOString(),
-            userFeedback: userFeedback,
-            chatMode: true
-          }
-        })
-      });
-    }
+    // Note: Automatic KPI storage has been disabled. 
+    // KPIs are only stored when user explicitly clicks "Store KPIs" button.
 
     return NextResponse.json(updatedDocumentation);
 
